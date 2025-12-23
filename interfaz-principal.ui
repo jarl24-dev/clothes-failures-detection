@@ -233,7 +233,7 @@ background-color:white;
                 <number>10</number>
                </property>
                <item>
-                <widget class="QPushButton" name="pushButton_encontrar_2">
+                <widget class="QPushButton" name="pushButton_encontrar">
                  <property name="sizePolicy">
                   <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                    <horstretch>0</horstretch>
@@ -277,6 +277,7 @@ background-color:white;
                   <font>
                    <pointsize>12</pointsize>
                    <weight>50</weight>
+                   <italic>true</italic>
                    <bold>false</bold>
                   </font>
                  </property>
@@ -296,7 +297,7 @@ background-color:white
                 <number>20</number>
                </property>
                <item>
-                <widget class="QPushButton" name="pushButton_conectar_2">
+                <widget class="QPushButton" name="pushButton_conectar">
                  <property name="sizePolicy">
                   <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
                    <horstretch>0</horstretch>
@@ -323,7 +324,7 @@ background-color:white
                 </widget>
                </item>
                <item>
-                <widget class="QPushButton" name="pushButton_desconectar_2">
+                <widget class="QPushButton" name="pushButton_desconectar">
                  <property name="sizePolicy">
                   <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
                    <horstretch>0</horstretch>
@@ -357,7 +358,7 @@ background-color:white
                 <number>20</number>
                </property>
                <item>
-                <widget class="QRadioButton" name="radioButton_continuo_2">
+                <widget class="QRadioButton" name="radioButton_continuo">
                  <property name="sizePolicy">
                   <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
                    <horstretch>0</horstretch>
@@ -384,7 +385,7 @@ background-color:white
                 </widget>
                </item>
                <item>
-                <widget class="QRadioButton" name="radioButton_disparo_2">
+                <widget class="QRadioButton" name="radioButton_disparo">
                  <property name="sizePolicy">
                   <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
                    <horstretch>0</horstretch>
@@ -418,7 +419,7 @@ background-color:white
                 <number>20</number>
                </property>
                <item>
-                <widget class="QCheckBox" name="checkBox_software_2">
+                <widget class="QCheckBox" name="checkBox_software">
                  <property name="sizePolicy">
                   <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
                    <horstretch>0</horstretch>
@@ -448,7 +449,7 @@ background-color:white
                 </widget>
                </item>
                <item>
-                <widget class="QPushButton" name="pushButton_disparar_2">
+                <widget class="QPushButton" name="pushButton_disparar">
                  <property name="sizePolicy">
                   <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
                    <horstretch>0</horstretch>
@@ -770,13 +771,14 @@ background-color:white
                      <weight>50</weight>
                      <italic>true</italic>
                      <bold>false</bold>
+                     <strikeout>false</strikeout>
                     </font>
                    </property>
                    <property name="text">
                     <string>Longitud:</string>
                    </property>
                    <property name="alignment">
-                    <set>Qt::AlignCenter</set>
+                    <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
                    </property>
                   </widget>
                  </item>
@@ -826,13 +828,14 @@ background-color:white
                      <weight>50</weight>
                      <italic>true</italic>
                      <bold>false</bold>
+                     <strikeout>false</strikeout>
                     </font>
                    </property>
                    <property name="text">
                     <string>Ancho:</string>
                    </property>
                    <property name="alignment">
-                    <set>Qt::AlignCenter</set>
+                    <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
                    </property>
                   </widget>
                  </item>
@@ -882,13 +885,14 @@ background-color:white
                      <weight>50</weight>
                      <italic>true</italic>
                      <bold>false</bold>
+                     <strikeout>false</strikeout>
                     </font>
                    </property>
                    <property name="text">
                     <string>Talla Aproximada:</string>
                    </property>
                    <property name="alignment">
-                    <set>Qt::AlignCenter</set>
+                    <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
                    </property>
                   </widget>
                  </item>
@@ -968,13 +972,14 @@ background-color:white
                      <weight>50</weight>
                      <italic>true</italic>
                      <bold>false</bold>
+                     <strikeout>false</strikeout>
                     </font>
                    </property>
                    <property name="text">
                     <string>Total Huecos:</string>
                    </property>
                    <property name="alignment">
-                    <set>Qt::AlignCenter</set>
+                    <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
                    </property>
                   </widget>
                  </item>
@@ -1024,13 +1029,14 @@ background-color:white
                      <weight>50</weight>
                      <italic>true</italic>
                      <bold>false</bold>
+                     <strikeout>false</strikeout>
                     </font>
                    </property>
                    <property name="text">
                     <string>Total Puntos Corridos:</string>
                    </property>
                    <property name="alignment">
-                    <set>Qt::AlignCenter</set>
+                    <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
                    </property>
                   </widget>
                  </item>
@@ -1080,13 +1086,14 @@ background-color:white
                      <weight>50</weight>
                      <italic>true</italic>
                      <bold>false</bold>
+                     <strikeout>false</strikeout>
                     </font>
                    </property>
                    <property name="text">
                     <string>Total Defectos:</string>
                    </property>
                    <property name="alignment">
-                    <set>Qt::AlignCenter</set>
+                    <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
                    </property>
                   </widget>
                  </item>
@@ -1139,37 +1146,168 @@ background-color:white
               <property name="title">
                <string>Estado</string>
               </property>
-              <widget class="QLineEdit" name="lineEdit_estado">
-               <property name="geometry">
-                <rect>
-                 <x>20</x>
-                 <y>40</y>
-                 <width>380</width>
-                 <height>40</height>
-                </rect>
-               </property>
-               <property name="sizePolicy">
-                <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-                 <horstretch>0</horstretch>
-                 <verstretch>0</verstretch>
-                </sizepolicy>
-               </property>
-               <property name="minimumSize">
-                <size>
-                 <width>190</width>
-                 <height>30</height>
-                </size>
-               </property>
-               <property name="font">
-                <font>
-                 <family>Calibri</family>
-                 <pointsize>12</pointsize>
-                 <weight>75</weight>
-                 <italic>true</italic>
-                 <bold>true</bold>
-                </font>
-               </property>
-              </widget>
+              <layout class="QVBoxLayout" name="verticalLayout_10">
+               <item>
+                <layout class="QGridLayout" name="gridLayout_4">
+                 <property name="horizontalSpacing">
+                  <number>20</number>
+                 </property>
+                 <property name="verticalSpacing">
+                  <number>10</number>
+                 </property>
+                 <item row="0" column="0">
+                  <widget class="QLabel" name="label">
+                   <property name="sizePolicy">
+                    <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+                     <horstretch>0</horstretch>
+                     <verstretch>0</verstretch>
+                    </sizepolicy>
+                   </property>
+                   <property name="minimumSize">
+                    <size>
+                     <width>280</width>
+                     <height>30</height>
+                    </size>
+                   </property>
+                   <property name="font">
+                    <font>
+                     <pointsize>10</pointsize>
+                     <weight>50</weight>
+                     <italic>false</italic>
+                     <bold>false</bold>
+                    </font>
+                   </property>
+                   <property name="text">
+                    <string>CUBO VERDE (Aprobada):</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="0" column="1">
+                  <widget class="QLabel" name="label_4">
+                   <property name="sizePolicy">
+                    <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                     <horstretch>0</horstretch>
+                     <verstretch>0</verstretch>
+                    </sizepolicy>
+                   </property>
+                   <property name="minimumSize">
+                    <size>
+                     <width>30</width>
+                     <height>30</height>
+                    </size>
+                   </property>
+                   <property name="styleSheet">
+                    <string notr="true">background-color: white;
+border-radius: 15px; /* Si el label mide 20x20, el radio es 10 */</string>
+                   </property>
+                   <property name="text">
+                    <string/>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="1" column="0">
+                  <widget class="QLabel" name="label_2">
+                   <property name="sizePolicy">
+                    <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+                     <horstretch>0</horstretch>
+                     <verstretch>0</verstretch>
+                    </sizepolicy>
+                   </property>
+                   <property name="minimumSize">
+                    <size>
+                     <width>280</width>
+                     <height>30</height>
+                    </size>
+                   </property>
+                   <property name="font">
+                    <font>
+                     <pointsize>10</pointsize>
+                     <weight>50</weight>
+                     <italic>false</italic>
+                     <bold>false</bold>
+                    </font>
+                   </property>
+                   <property name="text">
+                    <string>CUBO AMARILLO (Corrección Menor):</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="1" column="1">
+                  <widget class="QLabel" name="label_5">
+                   <property name="sizePolicy">
+                    <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                     <horstretch>0</horstretch>
+                     <verstretch>0</verstretch>
+                    </sizepolicy>
+                   </property>
+                   <property name="minimumSize">
+                    <size>
+                     <width>30</width>
+                     <height>30</height>
+                    </size>
+                   </property>
+                   <property name="styleSheet">
+                    <string notr="true">background-color: white;
+border-radius: 15px; /* Si el label mide 20x20, el radio es 10 */</string>
+                   </property>
+                   <property name="text">
+                    <string/>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="2" column="0">
+                  <widget class="QLabel" name="label_3">
+                   <property name="sizePolicy">
+                    <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+                     <horstretch>0</horstretch>
+                     <verstretch>0</verstretch>
+                    </sizepolicy>
+                   </property>
+                   <property name="minimumSize">
+                    <size>
+                     <width>280</width>
+                     <height>30</height>
+                    </size>
+                   </property>
+                   <property name="font">
+                    <font>
+                     <pointsize>10</pointsize>
+                     <weight>50</weight>
+                     <italic>false</italic>
+                     <bold>false</bold>
+                    </font>
+                   </property>
+                   <property name="text">
+                    <string>CUBO ROJO (Defectuosa):</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="2" column="1">
+                  <widget class="QLabel" name="label_6">
+                   <property name="sizePolicy">
+                    <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                     <horstretch>0</horstretch>
+                     <verstretch>0</verstretch>
+                    </sizepolicy>
+                   </property>
+                   <property name="minimumSize">
+                    <size>
+                     <width>30</width>
+                     <height>30</height>
+                    </size>
+                   </property>
+                   <property name="styleSheet">
+                    <string notr="true">background-color: white;
+border-radius: 15px; /* Si el label mide 20x20, el radio es 10 */</string>
+                   </property>
+                   <property name="text">
+                    <string/>
+                   </property>
+                  </widget>
+                 </item>
+                </layout>
+               </item>
+              </layout>
              </widget>
             </item>
            </layout>
