@@ -9,6 +9,9 @@ from MvImport.MvCameraControl_class import *
 # Importar la clase para la operación de la cámara en segundo plano
 from visionclassV2 import CameraOperation
 
+# Importar la interfaz del PLC desde el nuevo archivo
+from plc_integration import PLCInterface
+
 # Importar las bibliotecas de PyQt6 para la interfaz gráfica
 from PyQt6.QtWidgets import QMainWindow, QApplication, QMessageBox
 from PyQt6.QtGui import QImage, QIntValidator, QPixmap
@@ -28,6 +31,11 @@ class Window(QMainWindow, Ui_MainWindow):
         self.cam_is_run = False
         self.camera = None
         self.nOpenDevSuccess = 0
+        
+        # Inicializar Interfaz PLC
+        self.plc = PLCInterface(ip='192.168.1.10', rack=0, slot=1)
+        self.plc.trigger_signal.connect(self.disparar_camara)
+
 
         # Inicializar la clase base QMainWindow
         super().__init__()
@@ -46,10 +54,12 @@ class Window(QMainWindow, Ui_MainWindow):
 
         self.radioButton_continuo.toggled.connect(self.set_triggermode)
         self.radioButton_disparo.toggled.connect(self.set_triggermode)
-        self.pushButton_disparar.clicked.connect(self.disparar)
+        self.pushButton_disparar.clicked.connect(self.disparar_camara)
 
         self.pushButton_obtener.clicked.connect(self.obtener_parametros)
         self.pushButton_ajustar.clicked.connect(self.ajustar_parametros)
+
+        self.checkBox_software.toggled.connect(self.conectar_logo)
 
 
     def mostrar_configCam(self): # Función para cambiar a la pantalla de configuración de cámara
@@ -58,7 +68,7 @@ class Window(QMainWindow, Ui_MainWindow):
     def mostrar_analisis(self): # Función para cambiar a la pantalla de análisis
             self.stackedWidget.setCurrentIndex(1)
 
-    def To_hex_str(self,num):
+    def To_hex_str(self,num): # Función para convertir un número a su representación hexadecimal en cadena
         chaDic = {10: 'a', 11: 'b', 12: 'c', 13: 'd', 14: 'e', 15: 'f'}
         hexStr = ""
         if num < 0:
@@ -70,7 +80,7 @@ class Window(QMainWindow, Ui_MainWindow):
         hexStr = chaDic.get(num, str(num)) + hexStr   
         return hexStr
 
-    def encontrar(self):
+    def encontrar(self): # Función para encontrar cámaras conectadas
         self.comboBox_camaras.clear()
 
         ret = MvCamera.MV_CC_EnumDevices(self.tlayerType, self.deviceList)
@@ -121,7 +131,7 @@ class Window(QMainWindow, Ui_MainWindow):
                 
                 self.comboBox_camaras.addItems(self.devList)
 
-    def conectar(self):
+    def conectar(self): # Función para conectar a la cámara seleccionada
             if self.cam_is_run:
                 QMessageBox.warning(self, "Advertencia", "Cámaras conectadas! Desconecte primero")
                 return
@@ -158,7 +168,7 @@ class Window(QMainWindow, Ui_MainWindow):
                 QMessageBox.information(self, "Información", "Encontrar cámaras disponibles primero")
                 return
             
-    def set_triggermode(self):
+    def set_triggermode(self): # Función para configurar el modo de disparo de la cámara
 
         if self.nOpenDevSuccess > 0:
             print("triggereando")
@@ -179,11 +189,58 @@ class Window(QMainWindow, Ui_MainWindow):
                     return
                 else:
                     self.cam_is_run = True
-            
-        else:
-            print("No hay camaras para configurar")
 
-    def getimage(self, image):
+                #if not self.checkBox_software.isChecked():
+                    #self.conectar_logo()
+        else:
+            print("No hay camara para configurar")
+
+    def conectar_logo(self): # Función para conectar o desconectar la función de disparo con el PLC LOGO!
+        # Si la casilla NO está marcada (Modo PLC/Hardware)
+        if not self.checkBox_software.isChecked():
+            if not self.plc.is_connected():
+                success, message = self.plc.connect()
+                if success:
+                    print("PLC LOGO! Conectado exitosamente")
+                else:
+                    QMessageBox.warning(self, "Warning!", f"Error al conectar con LOGO!: {message}")
+        
+        # Si marcas la casilla (Modo Software), desconectar el PLC
+        else:
+            if self.plc.is_connected():
+                self.plc.disconnect()
+                print("PLC Desconectado (Modo Software activado)")
+
+    def disparar_camara(self):
+        """Función unificada para disparar la cámara (Manual o PLC)"""
+        sender = self.sender()
+        is_manual = (sender == self.pushButton_disparar)
+
+        # Validación específica para disparo manual (Botón)
+        if is_manual and not self.checkBox_software.isChecked():
+            QMessageBox.information(self, "Información", "Activar disparo por software primero")
+            return
+
+        if self.nOpenDevSuccess > 0:
+            # Disparar cámara
+            ret = self.camera.Trigger_once()
+            if ret != 0:
+                print(f"Error al disparar: {self.To_hex_str(ret)}")
+                msg = 'Fallo al disparar la cámara! ret = ' + self.To_hex_str(ret)
+                if is_manual:
+                    QMessageBox.warning(self, "Advertencia", msg)
+                else:
+                    print(msg) # En automático solo imprimimos para no bloquear
+            elif not is_manual:
+                print("Señal de PLC recibida -> Disparo exitoso")
+        else:
+            msg = "Conectar una cámara primero"
+            if is_manual:
+                QMessageBox.information(self, "Información", msg)
+            else:
+                print("Intento de disparo PLC sin cámaras conectadas")
+
+    def getimage(self, image): # Función para recibir y mostrar imágenes de la cámara
         print(image.size)
         if image.size != 0:
             FlippedImage = image
@@ -191,11 +248,10 @@ class Window(QMainWindow, Ui_MainWindow):
             Pic = ConvertToQtFormat.scaled(self.label_camara.width(), self.label_camara.height(), Qt.AspectRatioMode.IgnoreAspectRatio)
             self.label_camara.setPixmap(QPixmap.fromImage(Pic))
 
+        #else: 
+            #print("no hay datos")
 
-        else: 
-            print("no hay datos")
-
-    def obtener_parametros(self):
+    def obtener_parametros(self): # Función para obtener y mostrar los parámetros actuales de la cámara
         if self.nOpenDevSuccess > 0:
             ret = self.camera.Get_parameter()
             if 0!= ret:
@@ -210,7 +266,7 @@ class Window(QMainWindow, Ui_MainWindow):
             QMessageBox.information(self, "Información", "Conectar una cámara primero")
             return
         
-    def ajustar_parametros(self):
+    def ajustar_parametros(self): # Función para ajustar los parámetros de la cámara según la entrada del usuario
         if self.nOpenDevSuccess > 0:
             try:
                 self.camera.exposure_time = float(self.lineEdit_expo.text())
@@ -225,7 +281,7 @@ class Window(QMainWindow, Ui_MainWindow):
             QMessageBox.information(self, "Información", "Conectar una cámara primero")
             return
         
-    def desconectar(self):
+    def desconectar(self): # Función para desconectar de forma segura la cámara
         if self.nOpenDevSuccess > 0:
             print("Deteniendo camaras")
             
@@ -240,8 +296,6 @@ class Window(QMainWindow, Ui_MainWindow):
             self.camera = None
             self.nOpenDevSuccess = 0
 
-            QMessageBox.information(self, "Información", "Cámara desconectada")
-
             self.comboBox_camaras.clear()
 
             self.radioButton_continuo.setAutoExclusive(False)
@@ -255,19 +309,16 @@ class Window(QMainWindow, Ui_MainWindow):
             self.checkBox_software.setChecked(False)
             self.label_camara.clear()
 
+            # Desconectar PLC
+            if self.plc.is_connected():
+                self.plc.disconnect()
+                print("PLC Desconectado")
+            
+            QMessageBox.information(self, "Información", "Sistema desconectado (Cámara y PLC)")
         else:
             QMessageBox.information(self, "Información", "No hay cámaras conectadas")
             return
-        
-    def disparar(self):
-        if self.nOpenDevSuccess > 0:
-            ret = self.camera.Trigger_once()
-            if 0 != ret:
-                QMessageBox.warning(self, "Advertencia", 'Fallo al disparar la cámara!ret = '+ self.To_hex_str(ret))
-        else:
-            QMessageBox.information(self, "Información", "Conectar una cámara primero")
-            return
-            
+
 if __name__ == "__main__":
     import sys
     app = QApplication(sys.argv)

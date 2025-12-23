@@ -14,7 +14,7 @@ from time import sleep
 
 
 sys.path.append("./MvImport")
-from MvCameraControl_class import *
+from MvImport.MvCameraControl_class import *
 
 class CameraOperation(QThread):
     ImageUpdate = pyqtSignal(np.ndarray)
@@ -264,8 +264,8 @@ class CameraOperation(QThread):
                     self.Save_jpg(buf_cache) #en:Save Jpg
 
             else:
-                print("No data "+self.To_hex_str(ret))
-                self.ImageUpdate.emit(numArray)
+                #print("No data "+self.To_hex_str(ret))
+                #self.ImageUpdate.emit(numArray)
                 continue
 
             #转换像素结构体赋值
