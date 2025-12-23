@@ -1,5 +1,7 @@
 import sys
 import os
+import cv2
+from ultralytics import YOLO
 
 # Agregar la ruta del módulo MvImport al path del sistema
 sys.path.append("./MvImport")
@@ -31,6 +33,14 @@ class Window(QMainWindow, Ui_MainWindow):
         self.cam_is_run = False
         self.camera = None
         self.nOpenDevSuccess = 0
+        
+        # Inicializar Modelo YOLO
+        try:
+            # Cambia "best.pt" por la ruta de tu modelo entrenado (ej. "yolov8n.pt")
+            self.model = YOLO("best.pt") 
+        except Exception as e:
+            print(f"Advertencia: No se pudo cargar el modelo YOLO: {e}")
+            self.model = None
         
         # Inicializar Interfaz PLC
         self.plc = PLCInterface(ip='192.168.1.10', rack=0, slot=1)
@@ -243,6 +253,33 @@ class Window(QMainWindow, Ui_MainWindow):
     def getimage(self, image): # Función para recibir y mostrar imágenes de la cámara
         print(image.size)
         if image.size != 0:
+            
+            # --- Procesamiento YOLO ---
+            if self.model:
+                # Realizar inferencia en la imagen recibida
+                results = self.model(image)
+                
+                # --- Contar detecciones por clase ---
+                # results[0].boxes.cls devuelve un tensor con los IDs (ej: [0., 1., 0.])
+                # Lo convertimos a lista de Python para poder contar
+                det_classes = results[0].boxes.cls.tolist()
+                
+                # Contar ocurrencias (Asumiendo ID 0 = Huecos, ID 1 = Puntos)
+                # Nota: Verifica qué ID corresponde a qué etiqueta imprimiendo self.model.names
+                n_huecos = det_classes.count(0.0)
+                n_puntos = det_classes.count(1.0)
+                
+                self.lineEdit_huecos.setText(str(n_huecos))
+                self.lineEdit_puntos.setText(str(n_puntos))
+                self.lineEdit_totaldefectos.setText(str(len(det_classes)))
+                
+                # Dibujar las cajas de detección (plot devuelve un array BGR)
+                annotated_frame = results[0].plot()
+                
+                # Convertir de BGR (OpenCV) a RGB (Qt)
+                image = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
+            # --------------------------
+
             FlippedImage = image
             ConvertToQtFormat = QImage(FlippedImage.data, FlippedImage.shape[1], FlippedImage.shape[0], QImage.Format.Format_RGB888)
             Pic = ConvertToQtFormat.scaled(self.label_camara.width(), self.label_camara.height(), Qt.AspectRatioMode.IgnoreAspectRatio)
