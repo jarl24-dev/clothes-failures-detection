@@ -34,6 +34,10 @@ class Window(QMainWindow, Ui_MainWindow):
         self.camera = None
         self.nOpenDevSuccess = 0
         
+         # Factor de calibración: Cantidad de píxeles que equivalen a 1 cm.
+        # IMPORTANTE: Debes calcular esto midiendo un objeto real a la distancia fija de tu cámara.
+        self.pixels_per_cm = 10.0 
+        
         # Inicializar Modelo YOLO
         try:
             # Cambia "best.pt" por la ruta de tu modelo entrenado (ej. "yolov8n.pt")
@@ -272,6 +276,29 @@ class Window(QMainWindow, Ui_MainWindow):
                 self.lineEdit_huecos.setText(str(n_huecos))
                 self.lineEdit_puntos.setText(str(n_puntos))
                 self.lineEdit_totaldefectos.setText(str(len(det_classes)))
+
+                # Asumimos que la clase ID 2 es la prenda. 
+                ID_PRENDA = 2 
+                
+                for box in results[0].boxes:
+                    # Si la caja detectada corresponde a la clase prenda
+                    if int(box.cls[0]) == ID_PRENDA:
+                        # box.xywh devuelve [centro_x, centro_y, ancho, alto] en píxeles
+                        _, _, w_px, h_px = box.xywh[0].tolist()
+                        
+                        # Convertir píxeles a centímetros usando el factor de calibración
+                        ancho_cm = w_px / self.pixels_per_cm
+                        largo_cm = h_px / self.pixels_per_cm
+                        
+                        self.lineEdit_ancho.setText(f"{ancho_cm:.2f}")
+                        self.lineEdit_longitud.setText(f"{largo_cm:.2f}")
+                        
+                        # Lógica simple para estimar talla basada en el ancho (ajustar umbrales)
+                        if ancho_cm >= 55: self.lineEdit_talla.setText("L")
+                        elif ancho_cm >= 50: self.lineEdit_talla.setText("M")
+                        else: self.lineEdit_talla.setText("S")
+                        
+                        break # Solo medimos la primera prenda encontrada (la más confiable)
                 
                 # Dibujar las cajas de detección (plot devuelve un array BGR)
                 annotated_frame = results[0].plot()
