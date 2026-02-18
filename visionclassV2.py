@@ -1,18 +1,22 @@
 import sys
+import os
+from dotenv import load_dotenv
+
+import tempfile
+
 import threading
 from PyQt6.QtWidgets import QMessageBox
+from roboflow import Roboflow
 
 import numpy as np
 import cv2 as cv
 
-import inspect
 from ctypes import *
 from PyQt6.QtCore import QThread, pyqtSignal, Qt
 
 from time import sleep
 
-
-
+load_dotenv()
 sys.path.append("./MvImport")
 from MvImport.MvCameraControl_class import *
 
@@ -22,7 +26,7 @@ class CameraOperation(QThread):
 
     def __init__(self,obj_cam,st_device_list,n_connect_num=0,b_open_device=False,b_start_grabbing = False,h_thread_handle=None,\
                 b_thread_closed=False,st_frame_info=None,b_exit=False,b_save_bmp=False,b_save_jpg=False,buf_save_image=None,\
-                n_save_image_size=0,frame_rate=0,exposure_time=0,gain=0):
+                n_save_image_size=0,frame_rate=25.6,exposure_time=16667.0,gain=3.0,gamma=0.45):
 
 
         super().__init__()
@@ -42,6 +46,8 @@ class CameraOperation(QThread):
         self.frame_rate = frame_rate
         self.exposure_time = exposure_time
         self.gain = gain
+        self.gamma = gamma
+        self.roboflow_split = "train" # Valor por defecto para el split de Roboflow
 
         self.ThreadActive = False
 
@@ -147,18 +153,32 @@ class CameraOperation(QThread):
             memset(byref(stFloatParam_exposureTime), 0, sizeof(MVCC_FLOATVALUE))
             stFloatParam_gain = MVCC_FLOATVALUE()
             memset(byref(stFloatParam_gain), 0, sizeof(MVCC_FLOATVALUE))
+            stFloatParam_gamma = MVCC_FLOATVALUE()
+            memset(byref(stFloatParam_gamma), 0, sizeof(MVCC_FLOATVALUE))
+
+            stBoolParam_gammaEnable = c_bool(False)
+            ret = self.obj_cam.MV_CC_GetBoolValue("GammaEnable", stBoolParam_gammaEnable)
+
+            stStringParam_GammaSelector = MVCC_STRINGVALUE()
+            ret = self.obj_cam.MV_CC_GetStringValue("GammaSelector", stStringParam_GammaSelector)
+
             ret = self.obj_cam.MV_CC_GetFloatValue("AcquisitionFrameRate", stFloatParam_FrameRate)
             self.frame_rate = stFloatParam_FrameRate.fCurValue
             ret = self.obj_cam.MV_CC_GetFloatValue("ExposureTime", stFloatParam_exposureTime)
             self.exposure_time = stFloatParam_exposureTime.fCurValue
             ret = self.obj_cam.MV_CC_GetFloatValue("Gain", stFloatParam_gain)
             self.gain = stFloatParam_gain.fCurValue
+            ret = self.obj_cam.MV_CC_GetFloatValue("Gamma", stFloatParam_gamma)
+            self.gamma = stFloatParam_gamma.fCurValue
             return ret
 
-    def Set_parameter(self,frameRate,exposureTime,gain):
+    def Set_parameter(self,frameRate,exposureTime,gain,gamma):
         if True == self.b_open_device:
             ret = self.obj_cam.MV_CC_SetFloatValue("ExposureTime",exposureTime)
             ret = self.obj_cam.MV_CC_SetFloatValue("Gain",gain)
+            ret = self.obj_cam.MV_CC_SetFloatValue("Gamma",gamma)
+            ret = self.obj_cam.MV_CC_SetBoolValue("GammaEnable", c_bool(True))
+            ret = self.obj_cam.MV_CC_SetStringValue("GammaSelector", "User")
             ret = self.obj_cam.MV_CC_SetFloatValue("AcquisitionFrameRate",frameRate)
             return ret
 
@@ -186,6 +206,33 @@ class CameraOperation(QThread):
             ret = self.obj_cam.MV_CC_SetCommandValue("TriggerSoftware")
             return ret
 
+    def send_to_roboflow(self, img_data, filename, split_value):
+        """Envía la imagen (desde memoria) a la API de Roboflow en segundo plano, a un split específico."""
+        
+        try:
+            # Initialize the Roboflow object with your API key
+            rf = Roboflow(api_key=os.getenv("API_ROBOFLOW"))
+
+            # Specify the project for upload
+            workspaceId = os.getenv("ROBOFLOW_WORKSPACE")
+            projectId = os.getenv("ROBOFLOW_PROJECT")
+            project = rf.workspace(workspaceId).project(projectId)
+
+            # Creamos un archivo temporal que se destruye al cerrar el bloque 'with'
+            with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as temp_img:
+                temp_img.write(img_data)  # Escribimos los bytes directamente
+                temp_path = temp_img.name
+            
+            # Pasamos la ruta del archivo temporal a Roboflow
+            project.upload(temp_path, name=filename, split=split_value)
+            
+            # Limpiamos el archivo temporal manualmente después de subir
+            os.remove(temp_path)
+            
+            print(f">> Imagen subida con éxito: {filename}")
+
+        except Exception as e:
+            print(f">> Excepción enviando a Roboflow: {e}")
     
     def Save_jpg(self,buf_cache):
         if(None == buf_cache):
@@ -214,18 +261,24 @@ class CameraOperation(QThread):
             QMessageBox.warning(self, "Error", 'save jpg fail! ret = '+self.To_hex_str(return_code))
             self.b_save_jpg = False
             return
-        file_open = open(file_path.encode('ascii'), 'wb+')
-        img_buff = (c_ubyte * stParam.nImageLen)()
+        #file_open = open(file_path.encode('ascii'), 'wb+')
         try:
-            cdll.msvcrt.memcpy(byref(img_buff), stParam.pImageBuffer, stParam.nImageLen)
-            file_open.write(img_buff)
+            # Usar string_at para obtener los bytes directamente sin depender de msvcrt
+            img_data = string_at(stParam.pImageBuffer, stParam.nImageLen)
+            #file_open.write(img_data)
+            
+            # Definir el nombre del archivo AQUI para asegurar que coincida con la imagen actual
+            filename_api = f"Camara{self.n_connect_num}_{self.st_frame_info.nFrameNum}.jpg"
+            split_to_use = self.roboflow_split # Leer el valor del split configurado desde main.py
+
+            # Lanzar el envío pasando los datos, el nombre fijo y el split
+            threading.Thread(target=self.send_to_roboflow, args=(img_data, filename_api, split_to_use)).start()
+
             self.b_save_jpg = False
-            QMessageBox.information(self, "Información", "Imagen guardada exitosamente")
+            print(f"Imagen guardada: {file_path}")
         except:
             self.b_save_jpg = False
 
-        if None != img_buff:
-            del img_buff
         if None != self.buf_save_image:
             del self.buf_save_image
 
@@ -306,7 +359,4 @@ class CameraOperation(QThread):
     def stop(self):
         self.ThreadActive = False
         self.wait()
-        self.quit()
-        
-        
-
+        self.quit()       

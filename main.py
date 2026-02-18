@@ -56,6 +56,7 @@ class Window(QMainWindow, Ui_MainWindow):
 
         # Configurar la interfaz de usuario
         self.setupUi(self)
+        self.label_camara.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
         self.show()
 
         # Conectar los botones/accionadores a sus respectivas funciones
@@ -172,6 +173,12 @@ class Window(QMainWindow, Ui_MainWindow):
                     
                     self.set_triggermode()
 
+                    self.lineEdit_expo.setText(str(16667.0))
+                    self.lineEdit_ganancia.setText(str(3.0))
+                    self.lineEdit_gamma.setText(str(0.45))
+
+                    self.ajustar_parametros()
+
                     print("Iniciando Camaras")
 
                     if self.cam_is_run:
@@ -185,7 +192,7 @@ class Window(QMainWindow, Ui_MainWindow):
     def set_triggermode(self): # Función para configurar el modo de disparo de la cámara
 
         if self.nOpenDevSuccess > 0:
-            print("triggereando")
+            #print("triggereando")
             if self.radioButton_continuo.isChecked():
                 ret = self.camera.Set_trigger_mode(self.radioButton_continuo.text())
 
@@ -231,11 +238,21 @@ class Window(QMainWindow, Ui_MainWindow):
         is_manual = (sender == self.pushButton_disparar)
 
         # Validación específica para disparo manual (Botón)
-        if is_manual and not self.checkBox_software.isChecked():
+        if is_manual and not self.checkBox_software.isChecked() and not self.radioButton_continuo.isChecked():
             QMessageBox.information(self, "Información", "Activar disparo por software primero")
+            return
+        
+        # Funcion para guardar la imagen en modo continuo si se presiona el boton de disparo manual
+        # Util para guardar imagenes de entrenamiento desde el modo continuo en roboflow
+        if is_manual and self.radioButton_continuo.isChecked():
+            self.camera.b_save_jpg = True
             return
 
         if self.nOpenDevSuccess > 0:
+            dataset_type = ["train", "valid", "test"]
+            self.camera.roboflow_split = dataset_type[0]
+
+            self.camera.b_save_jpg = True
             # Disparar cámara
             ret = self.camera.Trigger_once()
             if ret != 0:
@@ -255,7 +272,7 @@ class Window(QMainWindow, Ui_MainWindow):
                 print("Intento de disparo PLC sin cámaras conectadas")
 
     def getimage(self, image): # Función para recibir y mostrar imágenes de la cámara
-        print(image.size)
+        #print(image.size)
         if image.size != 0:
             
             # --- Procesamiento YOLO ---
@@ -309,7 +326,9 @@ class Window(QMainWindow, Ui_MainWindow):
 
             FlippedImage = image
             ConvertToQtFormat = QImage(FlippedImage.data, FlippedImage.shape[1], FlippedImage.shape[0], QImage.Format.Format_RGB888)
-            Pic = ConvertToQtFormat.scaled(self.label_camara.width(), self.label_camara.height(), Qt.AspectRatioMode.IgnoreAspectRatio)
+            #print(FlippedImage.shape[1], FlippedImage.shape[0],self.label_camara.width())
+            #Pic = ConvertToQtFormat.scaled(self.label_camara.width(), self.label_camara.height(), Qt.AspectRatioMode.IgnoreAspectRatio)
+            Pic = ConvertToQtFormat.scaled(768, int(FlippedImage.shape[0]*768/FlippedImage.shape[1]), Qt.AspectRatioMode.IgnoreAspectRatio)
             self.label_camara.setPixmap(QPixmap.fromImage(Pic))
 
         #else: 
@@ -325,7 +344,7 @@ class Window(QMainWindow, Ui_MainWindow):
             else:
                 self.lineEdit_expo.setText(str(round(self.camera.exposure_time, 2)))
                 self.lineEdit_ganancia.setText(str(round(self.camera.gain,2)))
-                self.lineEdit_fps.setText(str(round(self.camera.frame_rate,2)))
+                self.lineEdit_gamma.setText(str(round(self.camera.gamma,2)))
         else:
             QMessageBox.information(self, "Información", "Conectar una cámara primero")
             return
@@ -334,9 +353,10 @@ class Window(QMainWindow, Ui_MainWindow):
         if self.nOpenDevSuccess > 0:
             try:
                 self.camera.exposure_time = float(self.lineEdit_expo.text())
-                self.camera.frame_rate = float(self.lineEdit_fps.text())
+                self.camera.gamma = float(self.lineEdit_gamma.text())
+                self.camera.frame_rate = float(25.6)
                 self.camera.gain = float(self.lineEdit_ganancia.text())
-                ret = self.camera.Set_parameter(self.camera.frame_rate, self.camera.exposure_time, self.camera.gain)
+                ret = self.camera.Set_parameter(self.camera.frame_rate, self.camera.exposure_time, self.camera.gain,self.camera.gamma)
                 if 0!= ret:
                     QMessageBox.warning(self, "Error", " Fallo al ajustar parametros de cámara !ret = "+ self.To_hex_str(ret))
             except ValueError:
@@ -344,44 +364,58 @@ class Window(QMainWindow, Ui_MainWindow):
         else:
             QMessageBox.information(self, "Información", "Conectar una cámara primero")
             return
-        
-    def desconectar(self): # Función para desconectar de forma segura la cámara
+
+    def _safe_disconnect(self):
+        """Realiza la desconexión de hardware sin mostrar pop-ups. Devuelve True si algo fue desconectado."""
         if self.nOpenDevSuccess > 0:
-            print("Deteniendo camaras")
+            print("Deteniendo cámaras...")
             
             self.camera.ImageUpdate.disconnect()
             self.camera.stop()
             ret = self.camera.Close_device()
             
             if 0 != ret:
-                QMessageBox.warning(self, "Advertencia", 'Fallo desconectar cámara!ret = '+ self.To_hex_str(ret))
-
+                # En lugar de un pop-up, imprimimos el error en la consola.
+                print(f"Advertencia: Fallo al desconectar la cámara! ret = {self.To_hex_str(ret)}")
+ 
             self.cam_is_run = False
             self.camera = None
             self.nOpenDevSuccess = 0
-
+            self.devList = []
+ 
             self.comboBox_camaras.clear()
-
+ 
             self.radioButton_continuo.setAutoExclusive(False)
             self.radioButton_continuo.setChecked(False)
             self.radioButton_continuo.setAutoExclusive(True)
-
+ 
             self.radioButton_disparo.setAutoExclusive(False)
             self.radioButton_disparo.setChecked(False)
             self.radioButton_disparo.setAutoExclusive(True)
-
+ 
             self.checkBox_software.setChecked(False)
             self.label_camara.clear()
-
+ 
             # Desconectar PLC
             if self.plc.is_connected():
                 self.plc.disconnect()
                 print("PLC Desconectado")
             
+            return True
+        return False
+        
+    def desconectar(self): # Función para desconectar de forma segura la cámara (con feedback al usuario)
+        was_disconnected = self._safe_disconnect()
+        if was_disconnected:
             QMessageBox.information(self, "Información", "Sistema desconectado (Cámara y PLC)")
         else:
             QMessageBox.information(self, "Información", "No hay cámaras conectadas")
-            return
+
+    def closeEvent(self, event):
+        """Sobrescribe el evento de cierre para desconectar los dispositivos de forma segura."""
+        print("Evento de cierre detectado. Desconectando hardware...")
+        self._safe_disconnect()
+        event.accept()
 
 if __name__ == "__main__":
     import sys
