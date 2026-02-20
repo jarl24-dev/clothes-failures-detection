@@ -12,7 +12,17 @@ from CameraParams_header import *
 from MvErrorDefine_const import *
 
 import os
-os.add_dll_directory('C:\Program Files (x86)\Common Files\MVS\Runtime\Win64_x64')
+dll_candidate_paths = [
+    r'C:\Program Files (x86)\Common Files\MVS\Runtime\Win64_x64',
+    r'C:\Program Files\Common Files\MVS\Runtime\Win64_x64',
+]
+for _dll_path in dll_candidate_paths:
+    if os.path.isdir(_dll_path):
+        try:
+            os.add_dll_directory(_dll_path)
+        except Exception:
+            pass
+        break
 
 MvCamCtrldll = WinDLL("MvCameraControl.dll")
 
