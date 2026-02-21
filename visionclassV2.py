@@ -174,11 +174,11 @@ class CameraOperation(QThread):
 
     def Set_parameter(self,frameRate,exposureTime,gain,gamma):
         if True == self.b_open_device:
+            ret = self.obj_cam.MV_CC_SetBoolValue("GammaEnable", c_bool(True))
+            ret = self.obj_cam.MV_CC_SetStringValue("GammaSelector", "User")
             ret = self.obj_cam.MV_CC_SetFloatValue("ExposureTime",exposureTime)
             ret = self.obj_cam.MV_CC_SetFloatValue("Gain",gain)
             ret = self.obj_cam.MV_CC_SetFloatValue("Gamma",gamma)
-            ret = self.obj_cam.MV_CC_SetBoolValue("GammaEnable", c_bool(True))
-            ret = self.obj_cam.MV_CC_SetStringValue("GammaSelector", "User")
             ret = self.obj_cam.MV_CC_SetFloatValue("AcquisitionFrameRate",frameRate)
             return ret
 

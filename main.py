@@ -12,7 +12,7 @@ from MvImport.MvCameraControl_class import *
 from visionclassV2 import CameraOperation
 
 # Importar la interfaz del PLC desde el nuevo archivo
-from plc_integration import PLCInterface
+from plc_integrationVs02 import PLCInterface
 
 # Importar las bibliotecas de PyQt6 para la interfaz gráfica
 from PyQt6.QtWidgets import QMainWindow, QApplication, QMessageBox
@@ -47,8 +47,8 @@ class Window(QMainWindow, Ui_MainWindow):
             self.model = None
         
         # Inicializar Interfaz PLC
-        self.plc = PLCInterface(ip='192.168.1.10', rack=0, slot=1)
-        self.plc.trigger_signal.connect(self.disparar_camara)
+        self.plc = PLCInterface(ip='192.168.0.3', rack=0, slot=1, local_tsap=0x1000, remote_tsap=0x2000)
+        #self.plc.trigger_signal.connect(self.disparar_camara)
 
 
         # Inicializar la clase base QMainWindow
@@ -169,6 +169,7 @@ class Window(QMainWindow, Ui_MainWindow):
                     # Asegurar que un modo esté seleccionado por defecto si ninguno lo está
                     if not self.radioButton_disparo.isChecked() and not self.radioButton_continuo.isChecked():
                         self.radioButton_disparo.setChecked(True)
+                        self.checkBox_software.setChecked(True)
                         self.checkBox_software.setChecked(False)
                     
                     self.set_triggermode()
@@ -245,13 +246,19 @@ class Window(QMainWindow, Ui_MainWindow):
         # Funcion para guardar la imagen en modo continuo si se presiona el boton de disparo manual
         # Util para guardar imagenes de entrenamiento desde el modo continuo en roboflow
         if is_manual and self.radioButton_continuo.isChecked():
-            self.camera.b_save_jpg = True
+            # --- PRUEBA PLC: Activar VM0.0 ---
+            if self.plc.is_connected():
+                # Escribir True en Byte 0, Bit 0 (VM0.0)
+                success = self.plc.write_vm_bool(0, 0, True)
+                if success:
+                    print(">> DEBUG: Señal de prueba enviada a VM0.0 del LOGO!")
+                else:
+                    QMessageBox.warning(self, "Error PLC")
+            # ---------------------------------
+            #self.camera.b_save_jpg = True
             return
 
         if self.nOpenDevSuccess > 0:
-            dataset_type = ["train", "valid", "test"]
-            self.camera.roboflow_split = dataset_type[0]
-
             self.camera.b_save_jpg = True
             # Disparar cámara
             ret = self.camera.Trigger_once()
