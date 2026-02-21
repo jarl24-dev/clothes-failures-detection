@@ -48,7 +48,7 @@ class Window(QMainWindow, Ui_MainWindow):
         
         # Inicializar Interfaz PLC
         self.plc = PLCInterface(ip='192.168.0.3', rack=0, slot=1, local_tsap=0x1000, remote_tsap=0x2000)
-        #self.plc.trigger_signal.connect(self.disparar_camara)
+        self.plc.trigger_signal.connect(self.variables_logo)
 
 
         # Inicializar la clase base QMainWindow
@@ -233,6 +233,20 @@ class Window(QMainWindow, Ui_MainWindow):
                 self.plc.disconnect()
                 print("PLC Desconectado (Modo Software activado)")
 
+    def variables_logo(self, value):
+        """Función para recibir señales del PLC y disparar la cámara en modo PLC"""
+        print(f"Señal recibida del PLC: {value}")
+        if value == 'VM0.1':  # Si el valor es 'VM0.1', disparar la cámara
+            if self.plc.is_connected():
+                # Escribir True en Byte 0, Bit 0 (VM0.0)
+                success = self.plc.write_vm_bool(0, 0, False)
+                if success:
+                    print(">> Desactivar a VM0.0 del LOGO!")
+                else:
+                    QMessageBox.warning(self, "Error PLC")
+        if value == 'VM0.2':  # Si el valor es 'VM0.2', disparar la cámara
+            print(">> Señal de disparo recibida desde VM0.2 del LOGO!")
+            
     def disparar_camara(self):
         """Función unificada para disparar la cámara (Manual o PLC)"""
         sender = self.sender()
