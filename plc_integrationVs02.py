@@ -25,6 +25,7 @@ class PLCWorker(QThread):
                     # 2. Definimos qué bits queremos monitorear y qué nombre asignarles
                     # Formato: (bit_index, nombre_señal)
                     señales_a_monitorear = [
+                        (0, 'VM0.0'),
                         (1, 'VM0.1'),
                         (2, 'VM0.2'),
                         (3, 'VM0.3'),

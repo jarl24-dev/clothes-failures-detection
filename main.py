@@ -49,6 +49,7 @@ class Window(QMainWindow, Ui_MainWindow):
         # Inicializar Interfaz PLC
         self.plc = PLCInterface(ip='192.168.0.3', rack=0, slot=1, local_tsap=0x1000, remote_tsap=0x2000)
         self.plc.trigger_signal.connect(self.variables_logo)
+        self.captura_final = False
 
 
         # Inicializar la clase base QMainWindow
@@ -239,13 +240,32 @@ class Window(QMainWindow, Ui_MainWindow):
         if value == 'VM0.1':  # Si el valor es 'VM0.1', disparar la cámara
             if self.plc.is_connected():
                 # Escribir True en Byte 0, Bit 0 (VM0.0)
-                success = self.plc.write_vm_bool(0, 0, False)
+                success = self.plc.write_vm_bool(0, 1, False)
                 if success:
-                    print(">> Desactivar a VM0.0 del LOGO!")
+                    print(">> Desactivar a VM0.1 del LOGO!")
                 else:
                     QMessageBox.warning(self, "Error PLC")
+
+        if value == 'VM0.3':  # Si el valor es 'VM0.1', disparar la cámara
+            if self.plc.is_connected():
+                # Escribir True en Byte 0, Bit 0 (VM0.0)
+                success = self.plc.write_vm_bool(0, 3, False)
+                if success:
+                    print(">> Desactivar a VM0.3 del LOGO!")
+                else:
+                    QMessageBox.warning(self, "Error PLC")
+
         if value == 'VM0.2':  # Si el valor es 'VM0.2', disparar la cámara
-            print(">> Señal de disparo recibida desde VM0.2 del LOGO!")
+            self.captura_final = True
+            self.disparar_camara()
+
+        if value == 'VM0.0':
+            self.disparar_camara()
+            success = self.plc.write_vm_bool(0, 0, False)
+            if success:
+                print(">> Desactivar a VM0.0 del LOGO!")
+            else:
+                QMessageBox.warning(self, "Error PLC")
             
     def disparar_camara(self):
         """Función unificada para disparar la cámara (Manual o PLC)"""
@@ -260,20 +280,11 @@ class Window(QMainWindow, Ui_MainWindow):
         # Funcion para guardar la imagen en modo continuo si se presiona el boton de disparo manual
         # Util para guardar imagenes de entrenamiento desde el modo continuo en roboflow
         if is_manual and self.radioButton_continuo.isChecked():
-            # --- PRUEBA PLC: Activar VM0.0 ---
-            if self.plc.is_connected():
-                # Escribir True en Byte 0, Bit 0 (VM0.0)
-                success = self.plc.write_vm_bool(0, 0, True)
-                if success:
-                    print(">> DEBUG: Señal de prueba enviada a VM0.0 del LOGO!")
-                else:
-                    QMessageBox.warning(self, "Error PLC")
-            # ---------------------------------
-            #self.camera.b_save_jpg = True
+            self.camera.b_save_jpg = True
             return
 
         if self.nOpenDevSuccess > 0:
-            self.camera.b_save_jpg = True
+            #self.camera.b_save_jpg = True
             # Disparar cámara
             ret = self.camera.Trigger_once()
             if ret != 0:
@@ -281,10 +292,29 @@ class Window(QMainWindow, Ui_MainWindow):
                 msg = 'Fallo al disparar la cámara! ret = ' + self.To_hex_str(ret)
                 if is_manual:
                     QMessageBox.warning(self, "Advertencia", msg)
+                    return
                 else:
                     print(msg) # En automático solo imprimimos para no bloquear
+                    return
             elif not is_manual:
                 print("Señal de PLC recibida -> Disparo exitoso")
+
+                if self.plc.is_connected() and self.captura_final == False:
+                # Escribir True en Byte 0, Bit 1 (VM0.1)
+                    success = self.plc.write_vm_bool(0, 1, True)
+                    if success:
+                        print(">> Activar a VM0.1 del LOGO!")
+                    else:
+                        QMessageBox.warning(self, "Error PLC")
+                if self.plc.is_connected() and self.captura_final == True:
+                    success = self.plc.write_vm_bool(0, 3, True)
+                    if success:
+                        print(">> Activar a VM0.3 del LOGO!")
+                    else:
+                        QMessageBox.warning(self, "Error PLC")
+                    self.captura_final = False
+
+            
         else:
             msg = "Conectar una cámara primero"
             if is_manual:
