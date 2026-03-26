@@ -82,6 +82,7 @@ class PLCWorker(QObject):
         # Bucle de monitoreo
         while self.running:
             if self.plc.is_connected():
+                #print("leyendo PLC...")
                 # Iteramos sobre los bits que queremos monitorear
                 for (byte, bit), last_val in self.last_states.items():
                     current_val = self.plc.read_vm_bool(byte, bit)
@@ -97,6 +98,11 @@ class PLCWorker(QObject):
                         
                         # Actualizamos el estado anterior para el próximo ciclo
                         self.last_states[(byte, bit)] = current_val
+                # Revisamos las marcas que te interesan
+                #if self.plc.read_vm_bool(0, 0): self.senal_disparo.emit('VM0.0')
+                #if self.plc.read_vm_bool(0, 1): self.senal_disparo.emit('VM0.1')
+                #if self.plc.read_vm_bool(0, 2): self.senal_disparo.emit('VM0.2')
+                #if self.plc.read_vm_bool(0, 3): self.senal_disparo.emit('VM0.3')
             
             time.sleep(0.1) # 100ms de muestreo
 
