@@ -82,22 +82,30 @@ class PLCWorker(QObject):
         # Bucle de monitoreo
         while self.running:
             if self.plc.is_connected():
-                #print("leyendo PLC...")
-                # Iteramos sobre los bits que queremos monitorear
-                for (byte, bit), last_val in self.last_states.items():
-                    current_val = self.plc.read_vm_bool(byte, bit)
+                try:
+                    # 1. Leemos el byte 0 completo (contiene los bits 0.0 al 0.7)
+                    # db_read(1, inicio, tamaño) -> devuelve un bytearray
+                    data = self.plc.client.db_read(1, 0, 1)
+                    byte_actual = data[0]
+
+                    # 2. Lógica de Flanco: ¿Qué bits pasaron de 0 a 1?
+                    # Operación: (Actual AND (NOT Anterior))
+                    # Esto nos da un byte donde solo los bits que "subieron" son 1
+                    flancos = byte_actual & ~self.byte_anterior
+
+                    # 3. Solo si hubo algún cambio, disparamos
+                    if flancos > 0:
+                        # Si quieres ser específico sin un for, puedes checkear los bits críticos:
+                        if flancos & 0x01: self.senal_disparo.emit('VM0.0') # Bit 0
+                        if flancos & 0x02: self.senal_disparo.emit('VM0.1') # Bit 1
+                        if flancos & 0x04: self.senal_disparo.emit('VM0.2') # Bit 2
+                        if flancos & 0x08: self.senal_disparo.emit('VM0.3') # Bit 3
+
+                    # 4. Actualizamos la memoria
+                    self.byte_anterior = byte_actual
                     
-                    # Verificamos si hubo una lectura válida
-                    if current_val is not None:
-                        # LÓGICA DE FLANCO DE SUBIDA:
-                        # Si ahora es True y antes era False -> ¡Disparo!
-                        if current_val and not last_val:
-                            tag = f"VM{byte}.{bit}"
-                            self.senal_disparo.emit(tag)
-                            print(f"Flanco detectado en {tag}")
-                        
-                        # Actualizamos el estado anterior para el próximo ciclo
-                        self.last_states[(byte, bit)] = current_val
+                except Exception as e:
+                    print(f"Error de lectura: {e}")
                 # Revisamos las marcas que te interesan
                 #if self.plc.read_vm_bool(0, 0): self.senal_disparo.emit('VM0.0')
                 #if self.plc.read_vm_bool(0, 1): self.senal_disparo.emit('VM0.1')
