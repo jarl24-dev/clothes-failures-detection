@@ -71,12 +71,7 @@ class PLCWorker(QObject):
         super().__init__()
         self.plc = interface
         self.running = True
-        self.last_states = {
-            (0, 0): False,
-            (0, 1): False,
-            (0, 2): False,
-            (0, 3): False
-        }
+        self.byte_anterior = 0 # Guardamos el estado de los 8 bits a la vez
 
     def run(self):
         # Bucle de monitoreo
