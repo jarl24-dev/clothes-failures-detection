@@ -101,12 +101,7 @@ class PLCWorker(QObject):
                     
                 except Exception as e:
                     print(f"Error de lectura: {e}")
-                # Revisamos las marcas que te interesan
-                #if self.plc.read_vm_bool(0, 0): self.senal_disparo.emit('VM0.0')
-                #if self.plc.read_vm_bool(0, 1): self.senal_disparo.emit('VM0.1')
-                #if self.plc.read_vm_bool(0, 2): self.senal_disparo.emit('VM0.2')
-                #if self.plc.read_vm_bool(0, 3): self.senal_disparo.emit('VM0.3')
-            
+
             time.sleep(0.1) # 100ms de muestreo
 
     def stop(self):

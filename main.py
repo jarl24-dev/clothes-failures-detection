@@ -1,6 +1,7 @@
 import sys
 import os
 import cv2
+import time
 from ultralytics import YOLO
 
 # Agregar la ruta del módulo MvImport al path del sistema
@@ -46,27 +47,27 @@ class Window(QMainWindow, Ui_MainWindow):
             print(f"Advertencia: No se pudo cargar el modelo YOLO: {e}")
             self.model = None
         
-        # Inicializar Interfaz PLC (solo el objeto)
-        self.plc = PLCInterface(ip='192.168.0.3', rack=0, slot=1, local_tsap=0x1000, remote_tsap=0x2000)
+        # Variables para PLC
+        self.plc = None  
+        self.worker_plc = None
+        self.thread_plc = QThread() # El hilo puede estar listo, pero vacío
         self.captura_final = False
 
-        # 2. Configurar el HILO del PLC
-        self.thread_plc = QThread()
-        self.worker_plc = PLCWorker(self.plc)
-        self.worker_plc.moveToThread(self.thread_plc)
-        
-        # 3. Conectar señales del hilo
-        self.thread_plc.started.connect(self.worker_plc.run)
-        self.worker_plc.senal_disparo.connect(self.lecturas_plc) # Conecta a tu función existente
+        # Guardado de imágenes
 
+        self.flg_guardar = False
 
         # Inicializar la clase base QMainWindow
         super().__init__()
 
         # Configurar la interfaz de usuario
         self.setupUi(self)
+
+        # Forzar tamaño exacto
+        self.setFixedSize(1300, 950)
+
         self.label_camara.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
-        self.show()
+        #self.show()
 
         # Conectar los botones/accionadores a sus respectivas funciones
         self.pushButton_analisis.clicked.connect(self.mostrar_analisis)
@@ -83,8 +84,18 @@ class Window(QMainWindow, Ui_MainWindow):
         self.pushButton_obtener.clicked.connect(self.obtener_parametros)
         self.pushButton_ajustar.clicked.connect(self.ajustar_parametros)
 
-        self.checkBox_software.toggled.connect(self.conectar_logo)
+        self.pushButton_conectar_plc.clicked.connect(self.conectar_plc)
+        self.pushButton_desconectar_plc.clicked.connect(self.desconectar_plc)
 
+        self.checkBox_guardar.stateChanged.connect(self.guardar_imagen)
+
+
+        self.radioButton_local.toggled.connect(self.set_guardado)
+        self.radioButton_roboflow.toggled.connect(self.set_guardado)
+
+        self.lineEdit_ip.setText('192.168.0.3')
+        self.lineEdit_rack.setText(str(0))
+        self.lineEdit_slot.setText(str(1))
 
     def mostrar_configCam(self): # Función para cambiar a la pantalla de configuración de cámara
             self.stackedWidget.setCurrentIndex(0)
@@ -179,8 +190,6 @@ class Window(QMainWindow, Ui_MainWindow):
                     # Asegurar que un modo esté seleccionado por defecto si ninguno lo está
                     if not self.radioButton_disparo.isChecked() and not self.radioButton_continuo.isChecked():
                         self.radioButton_disparo.setChecked(True)
-                        self.checkBox_software.setChecked(True)
-                        self.checkBox_software.setChecked(False)
                     
                     self.set_triggermode()
 
@@ -220,35 +229,75 @@ class Window(QMainWindow, Ui_MainWindow):
                     QMessageBox.warning(self, "Warning!", 'Configuracion de trigger fallida!ret = '+ self.To_hex_str(ret))
                     return
                 else:
-                    self.cam_is_run = True
-
-                #if not self.checkBox_software.isChecked():
-                    #self.conectar_logo()
+                    self.cam_is_run = True                    
+            
         else:
-            print("No hay camara para configurar")
+            print("No hay camara para configurar trigger mode")
 
-    def conectar_logo(self): # Función para conectar o desconectar la función de disparo con el PLC LOGO!
-        # Si la casilla NO está marcada (Modo PLC habilitado)
-        if not self.checkBox_software.isChecked():
+    def conectar_plc(self):
+        """Inicializa y arranca el monitoreo del PLC LOGO!"""
+        try:
+            # 1. Crear la interfaz solo si es la primera vez o se limpió
+            if self.plc is None:
+                ip = self.lineEdit_ip.text()
+                rack = int(self.lineEdit_rack.text())
+                slot = int(self.lineEdit_slot.text())
+                self.plc = PLCInterface(ip=ip, rack=rack, slot=slot, 
+                                        local_tsap=0x1000, remote_tsap=0x2000)
+
+            # 2. Intentar conexión física
             if not self.plc.is_connected():
                 success, message = self.plc.connect()
-                if success:
-                    print(message)
-                    # ARRANCAR EL HILO SI NO ESTÁ CORRIENDO
-                    if not self.thread_plc.isRunning():
-                        self.thread_plc.start()
-                else:
-                    QMessageBox.warning(self, "Warning!", f"Error: {message}")
-        
-        # Si marcas la casilla, detenemos el monitoreo
-        else:
-            if self.thread_plc.isRunning():
-                self.worker_plc.stop()
-                self.thread_plc.quit()
-                self.thread_plc.wait() # Esperar a que cierre limpio
+                if not success:
+                    QMessageBox.critical(self, "Error de PLC", f"No se pudo conectar el PLC: {message}")
+                    self.plc = None # Limpiar la instancia para permitir reintentos futuros
+                    return
+
+                print(f"PLC conectado: {message}")
+                
+            # 3. Configurar Worker y Thread
+            if self.worker_plc is None:
+                self.worker_plc = PLCWorker(self.plc)
+                self.worker_plc.moveToThread(self.thread_plc)
+                self.worker_plc.senal_disparo.connect(self.lecturas_plc)
+                self.thread_plc.started.connect(self.worker_plc.run)
             
-            if self.plc.is_connected():
-                self.plc.disconnect()
+            # 4. Iniciar el hilo si no está corriendo
+            if not self.thread_plc.isRunning():
+                self.thread_plc.start()
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error Fatal", f"Error al inicializar PLC: {str(e)}")
+            self.plc = None
+
+    def desconectar_plc(self):
+        """Detiene el monitoreo y libera todos los recursos del PLC"""
+        
+        # 1. Detener el hilo de forma segura (verificando que existan)
+        if self.thread_plc and self.thread_plc.isRunning():
+            if self.worker_plc:
+                self.worker_plc.stop()
+            
+            self.thread_plc.quit()
+            self.thread_plc.wait() # Esperar el cierre limpio
+            print("Hilo del PLC detenido.")
+
+        try:
+            # Desconectamos el método run para que no se acumule en el próximo inicio
+            self.thread_plc.started.disconnect()
+        except TypeError:
+            # Si no había conexiones, Qt lanza TypeError; lo ignoramos
+            pass
+
+        # 2. Desconectar el socket del PLC
+        if self.plc and self.plc.is_connected():
+            self.plc.disconnect()
+            print("Socket del PLC cerrado.")
+
+        # 3. MANDAR A NONE (Limpieza total)
+        # Esto garantiza que la próxima conexión sea desde cero (Fresh Start)
+        self.plc = None
+        self.worker_plc = None
 
     def logs_plc(self, success, message):
         if success:
@@ -278,59 +327,73 @@ class Window(QMainWindow, Ui_MainWindow):
         if value == 'VM0.2':  # Si el valor es 'VM0.2', disparar la cámara
             self.captura_final = True
             self.disparar_camara()  
+
+    def set_guardado(self):
+        if self.nOpenDevSuccess > 0:
+            if self.radioButton_local.isChecked():
+                print("Guardado local activado")
+                self.camera.flg_roboflow = False
+
+            elif self.radioButton_roboflow.isChecked():
+                print("Guardado en Roboflow activado")
+                self.camera.flg_roboflow = True                    
+            
+        else:
+            print("No hay camara para configurar guardado de imagen")
+
+    def guardar_imagen(self):
+        if self.nOpenDevSuccess > 0:
+            # Activar el flag para guardar la próxima imagen recibida
+            if self.checkBox_guardar.isChecked():
+                self.flg_guardar = True
+                print("Activar guardado de imagen")
+            else:
+                self.flg_guardar = False
+                print("Desactivar guardado de imagen")
+
+        else:
+            QMessageBox.information(self, "Información", "Conectar una cámara primero")
+            return
             
     def disparar_camara(self):
         """Función unificada para disparar la cámara (Manual o PLC)"""
-        sender = self.sender()
-        is_manual = (sender == self.pushButton_disparar)
 
         # Validación específica para disparo manual (Botón)
-        if is_manual and not self.checkBox_software.isChecked() and not self.radioButton_continuo.isChecked():
+        if self.radioButton_continuo.isChecked():
             QMessageBox.information(self, "Información", "Activar disparo por software primero")
-            return
-        
-        # Funcion para guardar la imagen en modo continuo si se presiona el boton de disparo manual
-        # Util para guardar imagenes de entrenamiento desde el modo continuo en roboflow
-        if is_manual and self.radioButton_continuo.isChecked():
-            print("Guardando imagen de entrenamiento...")
-            #self.camera.b_save_jpg = True --flg para guardar imagenes en modo continuo, se activa al presionar el boton de disparo manual y se desactiva al finalizar la escritura en disco en la función write_vm_bool del plc_integration.py
+            #self.camera.b_save_jpg = True
             return
 
         if self.nOpenDevSuccess > 0:
-            #self.camera.b_save_jpg = True --flg para guardar imagenes en modo continuo, se activa al presionar el boton de disparo manual y se desactiva al finalizar la escritura en disco en la función write_vm_bool del plc_integration.py
+            if self.flg_guardar:
+                self.camera.b_save_jpg = True
             # Disparar cámara
             ret = self.camera.Trigger_once()
             if ret != 0:
                 print(f"Error al disparar: {self.To_hex_str(ret)}")
                 msg = 'Fallo al disparar la cámara! ret = ' + self.To_hex_str(ret)
-                if is_manual:
-                    QMessageBox.warning(self, "Advertencia", msg)
-                    return
-                else:
-                    print(msg) # En automático solo imprimimos para no bloquear
-                    return
+                QMessageBox.warning(self, "Advertencia", msg)
+                return
                 
-            print("Cámara disparada manualmente")
+            print("Cámara disparada")
 
-            if self.plc.is_connected() and self.captura_final == False:
-            # Escribir True en Byte 0, Bit 1 (VM0.1)
-                success, message = self.plc.write_vm_bool(0, 1, True)
-                self.logs_plc(success, message)
+            if self.plc:
+                if self.plc.is_connected() and self.captura_final == False:
+                # Escribir True en Byte 0, Bit 1 (VM0.1)
+                    success, message = self.plc.write_vm_bool(0, 1, True)
+                    self.logs_plc(success, message)
 
-            if self.plc.is_connected() and self.captura_final == True:
-                success, message = self.plc.write_vm_bool(0, 3, True)
-                self.logs_plc(success, message)
-                self.captura_final = False
+                if self.plc.is_connected() and self.captura_final == True:
+                    success, message = self.plc.write_vm_bool(0, 3, True)
+                    self.logs_plc(success, message)
+                    self.captura_final = False
 
         else:
             msg = "Conectar una cámara primero"
-            if is_manual:
-                QMessageBox.information(self, "Información", msg)
-            else:
-                print("Intento de disparo PLC sin cámaras conectadas")
+            QMessageBox.information(self, "Información", msg)
+            print("Intento de disparo PLC sin cámaras conectadas")
 
     def getimage(self, image): # Función para recibir y mostrar imágenes de la cámara
-        #print(image.size)
         if image.size != 0:
             
             # --- Procesamiento YOLO ---
@@ -384,7 +447,7 @@ class Window(QMainWindow, Ui_MainWindow):
 
             FlippedImage = image
             ConvertToQtFormat = QImage(FlippedImage.data, FlippedImage.shape[1], FlippedImage.shape[0], QImage.Format.Format_RGB888)
-            #print(FlippedImage.shape[1], FlippedImage.shape[0],self.label_camara.width())
+            #print(FlippedImage.shape[1], FlippedImage.shape[0],self.label_camara.width()) #4096 2160 768
             #Pic = ConvertToQtFormat.scaled(self.label_camara.width(), self.label_camara.height(), Qt.AspectRatioMode.IgnoreAspectRatio)
             Pic = ConvertToQtFormat.scaled(768, int(FlippedImage.shape[0]*768/FlippedImage.shape[1]), Qt.AspectRatioMode.IgnoreAspectRatio)
             self.label_camara.setPixmap(QPixmap.fromImage(Pic))
@@ -450,18 +513,8 @@ class Window(QMainWindow, Ui_MainWindow):
             self.radioButton_disparo.setAutoExclusive(False)
             self.radioButton_disparo.setChecked(False)
             self.radioButton_disparo.setAutoExclusive(True)
- 
-            self.checkBox_software.setChecked(False)
+
             self.label_camara.clear()
- 
-            # Detener hilo del PLC
-            if self.thread_plc.isRunning():
-                self.worker_plc.stop()
-                self.thread_plc.quit()
-                self.thread_plc.wait()
-                
-            if self.plc.is_connected():
-                self.plc.disconnect()
             
             return True
         return False
@@ -469,18 +522,30 @@ class Window(QMainWindow, Ui_MainWindow):
     def desconectar(self): # Función para desconectar de forma segura la cámara (con feedback al usuario)
         was_disconnected = self._safe_disconnect()
         if was_disconnected:
-            QMessageBox.information(self, "Información", "Sistema desconectado (Cámara y PLC)")
+            QMessageBox.information(self, "Información", "Camara Desconectada con éxito")
         else:
             QMessageBox.information(self, "Información", "No hay cámaras conectadas")
 
     def closeEvent(self, event):
-        """Sobrescribe el evento de cierre para desconectar los dispositivos de forma segura."""
-        print("Evento de cierre detectado. Desconectando hardware...")
-        self._safe_disconnect()
-        event.accept()
+        """Evita cierres accidentales y asegura la desconexión total"""
+        reply = QMessageBox.question(self, 'Cerrar Aplicación',
+                                    "¿Estás seguro de que deseas salir? Se detendrá el monitoreo.",
+                                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, 
+                                    QMessageBox.StandardButton.No)
+
+        if reply == QMessageBox.StandardButton.Yes:
+            print("Cerrando sistema de metrología...")
+            self.desconectar() # Asegura que las cámaras se desconecten limpiamente
+            self.desconectar_plc() # Asegura que el PLC se desconecte limpiamente
+            event.accept()
+        else:
+            event.ignore()
 
 if __name__ == "__main__":
-    import sys
     app = QApplication(sys.argv)
+    # 2. Configurar la política de redondeo INMEDIATAMENTE después de crear app
+    app.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.Floor)
+    
     MainWindow = Window()
+    MainWindow.show() # Lo mostramos aquí explícitamente
     sys.exit(app.exec())

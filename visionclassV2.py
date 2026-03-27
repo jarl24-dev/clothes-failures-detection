@@ -15,6 +15,7 @@ from ctypes import *
 from PyQt6.QtCore import QThread, pyqtSignal, Qt
 
 from time import sleep
+from datetime import datetime
 
 load_dotenv()
 sys.path.append("./MvImport")
@@ -26,7 +27,7 @@ class CameraOperation(QThread):
 
     def __init__(self,obj_cam,st_device_list,n_connect_num=0,b_open_device=False,b_start_grabbing = False,h_thread_handle=None,\
                 b_thread_closed=False,st_frame_info=None,b_exit=False,b_save_bmp=False,b_save_jpg=False,buf_save_image=None,\
-                n_save_image_size=0,frame_rate=25.6,exposure_time=16667.0,gain=3.0,gamma=0.45):
+                n_save_image_size=0,frame_rate=25.6,exposure_time=16667.0,gain=3.0,gamma=0.45,flg_roboflow=False):
 
 
         super().__init__()
@@ -48,12 +49,9 @@ class CameraOperation(QThread):
         self.gain = gain
         self.gamma = gamma
         self.roboflow_split = "train" # Valor por defecto para el split de Roboflow
+        self.flg_roboflow = flg_roboflow
 
         self.ThreadActive = False
-
-        self.path = ''
-        self.example = None
-        self.listaimagenes = []
 
     def To_hex_str(self,num):
         chaDic = {10: 'a', 11: 'b', 12: 'c', 13: 'd', 14: 'e', 15: 'f'}
@@ -238,9 +236,11 @@ class CameraOperation(QThread):
         if(None == buf_cache):
             return
         self.buf_save_image = None
-        #folder = "dataset/training/"
-        #file_path = folder+"Camara"+str(self.n_connect_num)+"-"+str(self.st_frame_info.nFrameNum) + ".jpg"
-        file_path = self.path + "Camara"+str(self.n_connect_num)+"_"+str(self.st_frame_info.nFrameNum) + ".jpg"
+        folder = "dataset"
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        file_path = f"{folder}/img_{timestamp}.jpg"
+        os.makedirs(os.path.dirname(file_path),exist_ok=True)
+        #file_path = self.path + "Camara"+str(self.n_connect_num)+"_"+str(self.st_frame_info.nFrameNum) + ".jpg"
         self.n_save_image_size = self.st_frame_info.nWidth * self.st_frame_info.nHeight * 3 + 2048
         if self.buf_save_image is None:
             self.buf_save_image = (c_ubyte * self.n_save_image_size)()
@@ -261,29 +261,31 @@ class CameraOperation(QThread):
             QMessageBox.warning(self, "Error", 'save jpg fail! ret = '+self.To_hex_str(return_code))
             self.b_save_jpg = False
             return
-        #file_open = open(file_path.encode('ascii'), 'wb+')
-        try:
-            # Usar string_at para obtener los bytes directamente sin depender de msvcrt
+        
+        if not self.flg_roboflow:
+            file_open = open(file_path.encode('ascii'), 'wb+')
             img_data = string_at(stParam.pImageBuffer, stParam.nImageLen)
-            #file_open.write(img_data)
-            
-            # Definir el nombre del archivo AQUI para asegurar que coincida con la imagen actual
-            filename_api = f"Camara{self.n_connect_num}_{self.st_frame_info.nFrameNum}.jpg"
-            split_to_use = self.roboflow_split # Leer el valor del split configurado desde main.py
-
-            # Lanzar el envío pasando los datos, el nombre fijo y el split
-            threading.Thread(target=self.send_to_roboflow, args=(img_data, filename_api, split_to_use)).start()
-
-            self.b_save_jpg = False
+            file_open.write(img_data)
             print(f"Imagen guardada: {file_path}")
-        except:
-            self.b_save_jpg = False
+            self.b_save_jpg = False 
+        else:
+            try:
+                # Usar string_at para obtener los bytes directamente sin depender de msvcrt
+                img_data = string_at(stParam.pImageBuffer, stParam.nImageLen)
+                
+                # Definir el nombre del archivo AQUI para asegurar que coincida con la imagen actual
+                filename_api = f"Camara{self.n_connect_num}_{self.st_frame_info.nFrameNum}.jpg"
+                split_to_use = self.roboflow_split # Leer el valor del split configurado desde main.py
+
+                # Lanzar el envío pasando los datos, el nombre fijo y el split
+                threading.Thread(target=self.send_to_roboflow, args=(img_data, filename_api, split_to_use)).start()
+
+                self.b_save_jpg = False    
+            except:
+                self.b_save_jpg = False
 
         if None != self.buf_save_image:
             del self.buf_save_image
-
-        self.listaimagenes.append((file_path, self.example))
-
 
     def run(self):
         
