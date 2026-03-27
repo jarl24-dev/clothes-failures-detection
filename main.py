@@ -190,7 +190,10 @@ class Window(QMainWindow, Ui_MainWindow):
                     # Asegurar que un modo esté seleccionado por defecto si ninguno lo está
                     if not self.radioButton_disparo.isChecked() and not self.radioButton_continuo.isChecked():
                         self.radioButton_disparo.setChecked(True)
-                    
+
+                    if not self.radioButton_local.isChecked() and not self.radioButton_roboflow.isChecked():
+                        self.radioButton_local.setChecked(True)
+
                     self.set_triggermode()
 
                     self.lineEdit_expo.setText(str(16667.0))
