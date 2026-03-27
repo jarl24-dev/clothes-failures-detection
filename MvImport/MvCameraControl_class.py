@@ -16,15 +16,30 @@ dll_candidate_paths = [
     r'C:\Program Files (x86)\Common Files\MVS\Runtime\Win64_x64',
     r'C:\Program Files\Common Files\MVS\Runtime\Win64_x64',
 ]
+
+dll_file = None
+
 for _dll_path in dll_candidate_paths:
-    if os.path.isdir(_dll_path):
+    candidate = os.path.join(_dll_path, "MvCameraControl.dll")
+    if os.path.isfile(candidate):
+        dll_file = candidate
         try:
             os.add_dll_directory(_dll_path)
         except Exception:
             pass
         break
 
-MvCamCtrldll = WinDLL("MvCameraControl.dll")
+if dll_file is None:
+    raise RuntimeError(
+        "No se encontró MvCameraControl.dll en el runtime instalado de Hikrobot MVS."
+    )
+
+try:
+    MvCamCtrldll = WinDLL(dll_file)
+except Exception as e:
+    raise RuntimeError(
+        f"No se pudo cargar MvCameraControl.dll desde: {dll_file}"
+    ) from e
 
 # 用于回调函数传入相机实例
 class _MV_PY_OBJECT_(Structure):
