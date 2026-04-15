@@ -1,11 +1,18 @@
 import sys
 import os
-import cv2
 import time
-from ultralytics import YOLO
+#from ultralytics import YOLO
+import cv2
 
 # Agregar la ruta del módulo MvImport al path del sistema
-sys.path.append("./MvImport")
+def resource_path(relative_path):
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+
+sys.path.append(resource_path("MvImport"))
 # Importar las clases necesarias del módulo MvCameraControl para el control de cámaras HIKROBOT
 from MvImport.MvCameraControl_class import *
 
@@ -40,9 +47,18 @@ class Window(QMainWindow, Ui_MainWindow):
         self.pixels_per_cm = 10.0 
         
         # Inicializar Modelo YOLO
+
+        if getattr(sys, 'frozen', False):
+            base_path = os.path.dirname(sys.executable)
+        else:
+            base_path = os.path.dirname(__file__)
+
+        model_path = os.path.join(base_path, "best.pt")
+
         try:
             # Cambia "best.pt" por la ruta de tu modelo entrenado (ej. "yolov8n.pt")
-            self.model = YOLO("best.pt") 
+            from ultralytics import YOLO
+            self.model = YOLO(model_path)
         except Exception as e:
             print(f"Advertencia: No se pudo cargar el modelo YOLO: {e}")
             self.model = None
@@ -54,8 +70,9 @@ class Window(QMainWindow, Ui_MainWindow):
         self.captura_final = False
 
         # Guardado de imágenes
-
         self.flg_guardar = False
+
+        self.devList = []
 
         # Inicializar la clase base QMainWindow
         super().__init__()
