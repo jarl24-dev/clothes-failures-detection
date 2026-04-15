@@ -1,6 +1,7 @@
 import sys
 import os
 from dotenv import load_dotenv
+from pathlib import Path
 
 import tempfile
 
@@ -17,7 +18,15 @@ from PyQt6.QtCore import QThread, pyqtSignal, Qt
 from time import sleep
 from datetime import datetime
 
-load_dotenv()
+def app_dir():
+    if getattr(sys, 'frozen', False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+ENV_PATH = app_dir() / ".env"
+load_dotenv(dotenv_path=ENV_PATH)
+print(f"Cargando .env desde: {ENV_PATH}")
+
 sys.path.append("./MvImport")
 from MvImport.MvCameraControl_class import *
 
