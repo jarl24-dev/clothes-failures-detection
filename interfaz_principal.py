@@ -1186,7 +1186,7 @@ class Ui_MainWindow(object):
         self.label_expo_4.setText(_translate("MainWindow", "1. Contorno de Pecho"))
         self.label_expo_5.setText(_translate("MainWindow", "2. Ancho de Cuello"))
         self.label_expo_6.setText(_translate("MainWindow", "3. Largo Manga Izq."))
-        self.label_expo_8.setText(_translate("MainWindow", "3. Largo de Manga Der."))
+        self.label_expo_8.setText(_translate("MainWindow", "3. Largo Manga Der."))
         self.label_expo_9.setText(_translate("MainWindow", "4. Alto Sisa Izq."))
         self.label_expo_10.setText(_translate("MainWindow", "4. Alto Sisa Der."))
         self.label_expo_13.setText(_translate("MainWindow", "5. Ancho Puño Izq."))

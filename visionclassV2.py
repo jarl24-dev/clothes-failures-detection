@@ -59,6 +59,7 @@ class CameraOperation(QThread):
         self.gamma = gamma
         self.roboflow_split = "train" # Valor por defecto para el split de Roboflow
         self.flg_roboflow = flg_roboflow
+        self.img_dir = None
 
         self.ThreadActive = False
 
@@ -245,10 +246,11 @@ class CameraOperation(QThread):
         if(None == buf_cache):
             return
         self.buf_save_image = None
-        folder = "dataset"
+        folder = "output/dataset"
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         file_path = f"{folder}/img_{timestamp}.jpg"
         os.makedirs(os.path.dirname(file_path),exist_ok=True)
+        self.img_dir = file_path
         #file_path = self.path + "Camara"+str(self.n_connect_num)+"_"+str(self.st_frame_info.nFrameNum) + ".jpg"
         self.n_save_image_size = self.st_frame_info.nWidth * self.st_frame_info.nHeight * 3 + 2048
         if self.buf_save_image is None:

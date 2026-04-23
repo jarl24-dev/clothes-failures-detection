@@ -33,6 +33,8 @@ chompa-pose-4/
 train_1024/
 train_aug/
 valid_1024/
+test/
+metrologia_chompas/
 # Archivos de configuración específicos (opcional)
 chompa_pose.yaml
 # PyInstaller
@@ -228,3 +230,4 @@ __marimo__/
 *.pdf
 *.png
 *.jpg
+*.csv
