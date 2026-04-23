@@ -452,9 +452,12 @@ class Window(QMainWindow, Ui_MainWindow):
                 self.img_dir1 = None
                 self.img_dir2 = None
 
-            real_kpts,ProcessedImage = self.predict_and_visualize_vs03(FlippedImage, imgsz=1024)
-            self.results_df = self.calcular_y_guardar_medidas(self.results_df, real_kpts, px_cm_ratio=19.98, img_dir1=self.img_dir1, 
-                                                              img_dir2=self.img_dir2, output_path="output/medidas_chompa.csv")
+            if self.radioButton_disparo.isChecked():
+                real_kpts,ProcessedImage = self.predict_and_visualize_vs03(FlippedImage, imgsz=1024)
+                self.results_df = self.calcular_y_guardar_medidas(self.results_df, real_kpts, px_cm_ratio=19.98, img_dir1=self.img_dir1, 
+                                                                img_dir2=self.img_dir2, output_path="output/medidas_chompa.csv")
+            else:
+                ProcessedImage = image
 
             aruco = False
             if aruco : 
