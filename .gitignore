@@ -33,6 +33,8 @@ metrologia_chompas/
 best/
 runs/
 dataset/
+Notebooks/deteccion_defectos-1/
+Notebooks/dataset_tiled/
 # Archivos de configuración específicos (opcional)
 *.yaml
 # PyInstaller
