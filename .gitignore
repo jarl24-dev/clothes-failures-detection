@@ -29,14 +29,12 @@ MANIFEST
 *.pt
 
 # Carpetas de datos y resultados
-chompa-pose-4/
-train_1024/
-train_aug/
-valid_1024/
-test/
 metrologia_chompas/
+best/
+runs/
+dataset/
 # Archivos de configuración específicos (opcional)
-chompa_pose.yaml
+*.yaml
 # PyInstaller
 #   Usually these files are written by a python script from a template
 #   before PyInstaller builds the exe, so as to inject date/other infos into it.

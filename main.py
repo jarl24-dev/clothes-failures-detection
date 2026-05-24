@@ -69,6 +69,9 @@ class Window(QMainWindow, Ui_MainWindow):
         # IMPORTANTE: Debes calcular esto midiendo un objeto real a la distancia fija de tu cámara.
         self.pixels_per_cm = 10.0 
         
+        # Modelo de detección de defectos (huecos, puntos corridos)
+        self.model_defect = None
+
         # Variables para PLC
         self.plc = None  
         self.worker_plc = None
@@ -79,6 +82,30 @@ class Window(QMainWindow, Ui_MainWindow):
         self.img_dir1 = None
         self.img_dir2 = None
         self.flg_ciclo_cama = False
+
+        # Escalado de medidas con homografía (opcional, para máxima precisión)
+        # 1. MEDIDAS REALES
+        self.ANCHO_CM = 168.4  # Distancia horizontal entre esquinas negras
+        self.ALTO_CM = 59.0    # Distancia vertical entre esquinas negras
+
+        # 2. Puntos que ya obtuviste (los que imprimiste recién)
+        self.pts_foto = np.array([
+            [405., 451.5],   # TL
+            [3962., 438.75],  # TR
+            [3957.75, 1675.25], # BR
+            [411., 1684.75]   # BL
+        ], dtype="float32")
+
+        # 3. Rectángulo ideal en centímetros
+        self.pts_reales = np.array([
+            [0, 0],
+            [self.ANCHO_CM, 0],
+            [self.ANCHO_CM, self.ALTO_CM],
+            [0, self.ALTO_CM]
+        ], dtype="float32")
+
+        # 4. GENERAR LA MATRIZ DE TRANSFORMACIÓN (M)
+        self.M = cv2.getPerspectiveTransform(self.pts_foto, self.pts_reales)
 
         # Guardado de imágenes
         self.flg_guardar = False
@@ -326,13 +353,12 @@ class Window(QMainWindow, Ui_MainWindow):
         if self.plc and self.plc.is_connected():
             self.plc.disconnect()
             print("Socket del PLC cerrado.")
+            QMessageBox.information(self, "PLC", "PLC desconectado y monitoreo detenido exitosamente")
 
         # 3. MANDAR A NONE (Limpieza total)
         # Esto garantiza que la próxima conexión sea desde cero (Fresh Start)
         self.plc = None
         self.worker_plc = None
-
-        QMessageBox.information(self, "PLC", "PLC desconectado y monitoreo detenido exitosamente")
 
     def logs_plc(self, success, message):
         if success:
@@ -398,8 +424,6 @@ class Window(QMainWindow, Ui_MainWindow):
     def disparar_camara(self):
         """Función unificada para disparar la cámara (Manual o PLC)"""
 
-        self.pushButton_disparar.setEnabled(False)  # Evitar múltiples disparos simultáneos
-
         # Validación específica para disparo manual (Botón)
         if self.radioButton_continuo.isChecked():
             QMessageBox.information(self, "Información", "Activar disparo por software primero")
@@ -407,6 +431,7 @@ class Window(QMainWindow, Ui_MainWindow):
             return
 
         if self.nOpenDevSuccess > 0:
+            self.pushButton_disparar.setEnabled(False)  # Evitar múltiples disparos simultáneos
             if self.flg_guardar:
                 self.camera.b_save_jpg = True
             # Disparar cámara
@@ -453,9 +478,13 @@ class Window(QMainWindow, Ui_MainWindow):
                 self.img_dir2 = None
 
             if self.radioButton_disparo.isChecked():
-                real_kpts,ProcessedImage = self.predict_and_visualize_vs03(FlippedImage, imgsz=1024)
-                self.results_df = self.calcular_y_guardar_medidas(self.results_df, real_kpts, px_cm_ratio=19.98, img_dir1=self.img_dir1, 
-                                                                img_dir2=self.img_dir2, output_path="output/medidas_chompa.csv")
+                real_kpts,preProcessedImage = self.predict_and_visualize_vs03(FlippedImage, imgsz=1024)
+                annotated_image, conteo_corridos, conteo_huecos = self.predict_defects(preProcessedImage)
+                self.results_df = self.calcular_y_guardar_medidas(df_init=self.results_df, real_kpts=real_kpts, M=self.M, img_dir1=self.img_dir1, img_dir2=self.img_dir2, output_path="output/medidas_chompa.csv", conteo_corridos=conteo_corridos, conteo_huecos=conteo_huecos)
+                ProcessedImage = self.draw_results(annotated_image, real_kpts)
+                # Detección de defectos (huecos y puntos corridos)
+                #ProcessedImage = self.detectar_defectos(ProcessedImage)
+
             else:
                 ProcessedImage = image
 
@@ -501,19 +530,47 @@ class Window(QMainWindow, Ui_MainWindow):
                 
             #self.label_camara.setPixmap(QPixmap.fromImage(Pic))
 
-    def infer_trial(self, image, imgsz=640, use_half=False, device=0):
-        """
-        Recibe: image (np.ndarray BGR)
-        Devuelve: annotated_image (np.ndarray RGB para Qt)
-        """
-        if image is None or image.size == 0 or self.model is None:
-            return image
+    def predict_defects(self, image):
+        """Ejecuta el modelo bestdefect.pt sobre la imagen para detectar huecos y puntos corridos.
+        Dibuja bounding boxes con etiquetas sobre cada defecto encontrado.
+        Actualiza los lineEdits de la UI con los conteos."""
+        img_orig = image.copy() if not isinstance(image, str) else cv2.imread(image)
+        if img_orig is None: return None, 0, 0
 
-        results = self.model(image, imgsz=imgsz, conf=0.6, device=device, half=use_half)
-        # Esta función dibuja automáticamente usando los parámetros internos del modelo
-        annotated = results[0].plot() 
-        return cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB)
-    
+        if True: return img_orig, 0, 0 # DESACTIVAR TEMPORALMENTE PARA PRUEBAS
+
+        # --- PASO A: DETECCIÓN DEL ÁREA (Usamos la imagen 4K tal cual) ---
+        if self.model_defect is None:
+            print("Error: El modelo no está cargado.")
+            return img_orig, 0, 0
+        
+        # 1. Inferencia (imgsz=1280 para mantener el detalle de los hilos)
+        results = self.model_defect.predict(source=img_orig, imgsz=1280, conf=0.4, verbose=False,classes=[1, 2])
+        
+        # Inicializar contadores
+        conteo_corridos = 0
+        conteo_huecos = 0
+        
+        # YOLO devuelve una lista de resultados (uno por imagen)
+        # Como pasamos una sola imagen, tomamos el índice 0
+        res = results[0]
+        
+        # 2. Obtener la imagen anotada (NumPy BGR)
+        # .plot() dibuja automáticamente todas las cajas detectadas
+        annotated_image = res.plot(line_width=max(2, int(img_orig.shape[1] / 800)))
+        
+        # 3. Lógica de conteo basada en los IDs de clase del data.yaml
+        if res.boxes is not None:
+            classes = res.boxes.cls.cpu().numpy() # Convertir tensores a numpy
+            
+            for cls_id in classes:
+                if int(cls_id) == 1:   # Clase 'Corrido'
+                    conteo_corridos += 1
+                elif int(cls_id) == 2: # Clase 'Hueco'
+                    conteo_huecos += 1
+                    
+        return annotated_image, conteo_corridos, conteo_huecos
+   
     def predict_and_visualize_vs03(self, image_input, imgsz=1024, use_half=False, device=0):
         # 1. Carga inicial
         img_orig = image_input.copy() if not isinstance(image_input, str) else cv2.imread(image_input)
@@ -541,17 +598,14 @@ class Window(QMainWindow, Ui_MainWindow):
 
         # --- PASO B: CANVAS DE 1024 FIJO ---
         crop = img_orig[y_min:y_max, x_min:x_max]
-        ch, cw = crop.shape[:2]
+        # Ahora escalamos a 2048 para que los puños tengan el doble de píxeles
+        size_super = 2048 
+        scale = size_super / max(crop.shape[:2])
+        crop_res = cv2.resize(crop, None, fx=scale, fy=scale, interpolation=cv2.INTER_LANCZOS4)
         
-        # Calculamos escala para que el lado más largo sea 1024
-        scale = 1024 / max(ch, cw)
-        crop_res = cv2.resize(crop, (None, None), fx=scale, fy=scale, interpolation=cv2.INTER_LANCZOS4)
-        crh, crw = crop_res.shape[:2]
-
-        # Creamos el canvas de 1024x1024 (usa el color que mejor te funcionó, o negro [0,0,0])
-        canvas = np.zeros((1024, 1024, 3), dtype=np.uint8)
-        off_x, off_y = (1024 - crw) // 2, (1024 - crh) // 2
-        canvas[off_y:off_y + crh, off_x:off_x + crw] = crop_res
+        canvas = np.zeros((size_super, size_super, 3), dtype=np.uint8)
+        off_x, off_y = (size_super - crop_res.shape[1]) // 2, (size_super - crop_res.shape[0]) // 2
+        canvas[off_y:off_y + crop_res.shape[0], off_x:off_x + crop_res.shape[1]] = crop_res
 
         # --- PASO C: INFERENCIA ---
         # Al ser el canvas ya de 1024, imgsz=1024 no hará re-escalados internos
@@ -559,29 +613,38 @@ class Window(QMainWindow, Ui_MainWindow):
         
         if results.keypoints is None: return None, img_orig
 
-        # --- PASO D: RECONSTRUCCIÓN MATEMÁTICA INVERSA ---
-        kpts_abs = results.keypoints.xy[0].cpu().numpy() # Píxeles en el canvas de 1024
-        real_kpts = []
+        # --- PASO D: RECONSTRUCCIÓN USANDO .xyn (NORMALIZADOS) ---
+        # .xyn devuelve valores entre 0 y 1 respecto al canvas de entrada
+        kpts_norm = results.keypoints.xyn[0].cpu().numpy() 
+        real_kpts = np.zeros((len(kpts_norm), 2))
         
-        for kp in kpts_abs:
-            # 1. Restar offset del canvas (volver al crop_res)
-            kx_res, ky_res = kp[0] - off_x, kp[1] - off_y
-            # 2. Dividir por la escala (volver al crop original de 4K)
-            kx_crop, ky_crop = kx_res / scale, ky_res / scale
-            # 3. Sumar el origen del recorte (volver a la imagen 4K)
-            kx_final = kx_crop + x_min
-            ky_final = ky_crop + y_min
-            real_kpts.append([kx_final, ky_final])
+        for i, kp in enumerate(kpts_norm):
+            if kp[0] == 0 and kp[1] == 0: 
+                continue
+            
+            # 1. Convertir de normalizado a píxeles del canvas (1024x1024)
+            # Nota: Usamos 1024 porque es el espacio de coordenadas que YOLO calculó internamente
+            kx_canvas, ky_canvas = kp[0] * size_super, kp[1] * size_super
+            
+            # 2. Restar offset del canvas
+            kx_res, ky_res = kx_canvas - off_x, ky_canvas - off_y
+            
+            # 3. Volver al 4K usando la escala y el origen del crop
+            real_kpts[i] = [
+                (kx_res / scale) + x_min,
+                (ky_res / scale) + y_min
+            ]
 
-        real_kpts = np.array(real_kpts)
         print(f"[*] Tiempo total: {(time.time() - start_time)*1000:.2f} ms")
-        return real_kpts, self.draw_results(img_orig, real_kpts)
+        return real_kpts, img_orig
     
     def draw_results(self, image, real_kpts):
         """
         Dibuja los resultados sobre la imagen original de alta resolución.
         """
         img_vis = image.copy()
+        if real_kpts is None or len(real_kpts) == 0:
+            return img_vis
         
         # 1. Configuración de estilos para 4K
         # Escalamos los grosores según el ancho de la imagen
@@ -590,14 +653,14 @@ class Window(QMainWindow, Ui_MainWindow):
         
         # 2. Calcular BBox dinámico a partir de los puntos detectados
         # Añadimos un pequeño margen de 40px para que no pegue a la tela
-        x_min, y_min = np.min(real_kpts, axis=0) - 40
-        x_max, y_max = np.max(real_kpts, axis=0) + 40
+        x_min, y_min = np.min(real_kpts, axis=0) - 50
+        x_max, y_max = np.max(real_kpts, axis=0) + 50
         
         # Dibujar BBox (Color Azul Metrología)
         cv2.rectangle(img_vis, (int(x_min), int(y_min)), (int(x_max), int(y_max)), (255, 50, 50), thickness)
         
         # Etiqueta del BBox
-        cv2.putText(img_vis, "CHOMPA: ANALISIS DE FORMA", (int(x_min), int(y_min) - 20), 
+        cv2.putText(img_vis, "CHOMPA DETECTADA", (int(x_min), int(y_min) - 20), 
                     cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 50, 50), thickness)
 
         # 3. Dibujar Keypoints numerados
@@ -615,23 +678,130 @@ class Window(QMainWindow, Ui_MainWindow):
 
         return img_vis
 
-    def calcular_y_guardar_medidas(self,df_init, real_kpts, px_cm_ratio,img_dir1,img_dir2, output_path="output/medidas_chompa.csv"):
+    def detectar_defectos(self, image):
         """
-        Calcula las dimensiones basadas en los keypoints y las guarda en un CSV.
-        px_cm_ratio: El factor de conversión (ejemplo: 0.05 si 1px = 0.05cm)
+        Ejecuta el modelo bestdefect.pt sobre la imagen para detectar huecos y puntos corridos.
+        Dibuja bounding boxes con etiquetas sobre cada defecto encontrado.
+        Actualiza los lineEdits de la UI con los conteos.
         """
+        print(f"[DEFECTOS] detectar_defectos llamado. model_defect={self.model_defect is not None}, image={image is not None}")
         
-        def dist(p1_idx, p2_idx):
-            # Cálculo de distancia euclidiana en píxeles y conversión a cm
-            p1 = real_kpts[p1_idx]
-            p2 = real_kpts[p2_idx]
-            distancia_px = np.linalg.norm(p1 - p2)
-            return distancia_px / px_cm_ratio
+        if self.model_defect is None:
+            print("[DEFECTOS] ⚠️ model_defect es None - el modelo NO se cargó")
+            self.lineEdit_huecos.setText("N/A")
+            self.lineEdit_puntos.setText("N/A")
+            self.lineEdit_totaldefectos.setText("N/A")
+            return image
+        
+        if image is None:
+            print("[DEFECTOS] ⚠️ image es None")
+            return image
 
-        if real_kpts is None:
+        try:
+            print(f"[DEFECTOS] Ejecutando inferencia en imagen de {image.shape}...")
+            
+            # Inferencia con el modelo de defectos (imagen directa, sin conversión de color)
+            results = self.model_defect.predict(image, imgsz=640, conf=0.25,device=0)[0]
+
+            print(f"[DEFECTOS] Resultados: {len(results.boxes) if results.boxes is not None else 0} detecciones")
+
+            if results.boxes is None or len(results.boxes) == 0:
+                # Sin defectos detectados: limpiar conteos
+                
+                return image
+
+            # Obtener nombres de clases del modelo
+            class_names = results.names  # dict {0: 'hueco', 1: 'punto_corrido', ...}
+
+            # Contadores por tipo de defecto
+            conteo_huecos = 0
+            conteo_puntos = 0
+
+            # Configuración visual escalada a resolución de imagen
+            img_vis = image.copy()
+            thickness = max(2, int(image.shape[1] / 800))
+            font_scale = image.shape[1] / 1500
+
+            # Colores por tipo de defecto (RGB)
+            COLOR_HUECO = (255, 0, 0)       # Rojo para huecos
+            COLOR_PUNTO = (255, 165, 0)     # Naranja para puntos corridos
+            COLOR_OTRO = (255, 255, 0)      # Amarillo para otros defectos
+
+            boxes = results.boxes
+            for i in range(len(boxes)):
+                # Coordenadas del bounding box
+                x1, y1, x2, y2 = boxes.xyxy[i].cpu().numpy().astype(int)
+                conf = float(boxes.conf[i].cpu().numpy())
+                cls_id = int(boxes.cls[i].cpu().numpy())
+                cls_name = class_names.get(cls_id, f"clase_{cls_id}")
+
+                # Clasificar y contar
+                nombre_lower = cls_name.lower()
+                if "hueco" in nombre_lower or "hole" in nombre_lower:
+                    conteo_huecos += 1
+                    color = COLOR_HUECO
+                elif "punto" in nombre_lower or "corrido" in nombre_lower or "run" in nombre_lower:
+                    conteo_puntos += 1
+                    color = COLOR_PUNTO
+                else:
+                    color = COLOR_OTRO
+
+                # Dibujar bounding box
+                cv2.rectangle(img_vis, (x1, y1), (x2, y2), color, thickness)
+
+                # Etiqueta con nombre de clase y confianza
+                label = f"{cls_name} {conf:.0%}"
+                label_size, _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, font_scale * 0.6, thickness)
+                
+                # Fondo del texto para legibilidad
+                cv2.rectangle(img_vis, 
+                              (x1, y1 - label_size[1] - 10), 
+                              (x1 + label_size[0] + 5, y1), 
+                              color, -1)
+                cv2.putText(img_vis, label, (x1 + 2, y1 - 5), 
+                            cv2.FONT_HERSHEY_SIMPLEX, font_scale * 0.6, (255, 255, 255), thickness)
+
+            # Actualizar campos de la UI con los conteos
+            total_defectos = conteo_huecos + conteo_puntos
+            self.lineEdit_huecos.setText(str(conteo_huecos))
+            self.lineEdit_puntos.setText(str(conteo_puntos))
+            self.lineEdit_totaldefectos.setText(str(total_defectos))
+
+            print(f"🔍 Defectos detectados: {conteo_huecos} huecos, {conteo_puntos} puntos corridos, {total_defectos} total")
+
+            return img_vis
+
+        except Exception as e:
+            print(f"Error en detección de defectos: {e}")
+            return image
+
+    def calcular_y_guardar_medidas(self,df_init, real_kpts,M,img_dir1,img_dir2, output_path="output/medidas_chompa.csv",conteo_corridos=0, conteo_huecos=0):
+        """
+        Calcula dimensiones usando la Matriz de Transformación M para máxima precisión.
+        M: Matriz de homografía calculada con los 4 ArUcos.
+        """
+        if real_kpts is None or len(real_kpts) == 0:
+            print("❌ Error: Keypoints no proporcionada.")
             return None
         
-        print(self.img_dir1, self.img_dir2)
+        if M is None:
+            print("❌ Error: Matriz de Transformación M no proporcionada.")
+            return None
+
+        # --- PASO 1: TRANSFORMACIÓN A CENTÍMETROS REALES ---
+        # Convertimos todos los keypoints de una sola vez usando la matriz M
+        kpts_reshaped = real_kpts.reshape(-1, 1, 2).astype("float32")
+        kpts_cm = cv2.perspectiveTransform(kpts_reshaped, M).squeeze()
+
+        def dist(p1_idx, p2_idx):
+            # Ahora p1 y p2 ya están en coordenadas de centímetros
+            p1 = kpts_cm[p1_idx]
+            p2 = kpts_cm[p2_idx]
+            d = np.linalg.norm(p1 - p2) # La norma euclidiana aquí ya devuelve centímetros directamente
+            # Si la medida es larga (> 40cm), aplicamos un ajuste por distorsión de lente
+            if d > 40:
+                return d * 0.95 # Ajuste manual basado en tu error de 3cm
+            return d
     
         # Diccionario con los nombres de columnas solicitados y sus respectivos puntos
         # si df_init no es None (imagen volteada), invertimos las medidas de manga para promediar correctamente
@@ -646,7 +816,9 @@ class Window(QMainWindow, Ui_MainWindow):
             "Ancho manga izquierda": round(dist(2, 8), 2) if df_init is None else round(dist(3, 9), 2),
             "Ancho manga derecha": round(dist(3, 9), 2) if df_init is None else round(dist(2, 8), 2),
             "Ancho puño izquierdo": round(dist(4, 5), 2) if df_init is None else round(dist(6, 7), 2),
-            "Ancho puño derecho": round(dist(6, 7), 2) if df_init is None else round(dist(4, 5), 2)
+            "Ancho puño derecho": round(dist(6, 7), 2) if df_init is None else round(dist(4, 5), 2),
+            "Conteo puntos corridos": conteo_corridos,
+            "Conteo huecos": conteo_huecos
         }
 
         # Crear DataFrame
@@ -666,6 +838,10 @@ class Window(QMainWindow, Ui_MainWindow):
 
         print(f"✅ Datos anexados exitosamente en: {output_path}")
 
+        if self.plc is None:
+            # Mostrar medidas en UI solo si no estamos en modo PLC (para evitar conflictos de actualización)
+            self.mostrar_medidas(df)
+
         if df_init is not None and not df_init.empty and self.voltear_imagen == True:
             medidas = {
                 "img_dir1": img_dir1,
@@ -678,17 +854,12 @@ class Window(QMainWindow, Ui_MainWindow):
                 "Ancho manga izquierda": round((df_init["Ancho manga izquierda"].iloc[0] + df["Ancho manga izquierda"].iloc[0]) / 2, 2),
                 "Ancho manga derecha": round((df_init["Ancho manga derecha"].iloc[0] + df["Ancho manga derecha"].iloc[0]) / 2, 2),
                 "Ancho puño izquierdo": round((df_init["Ancho puño izquierdo"].iloc[0] + df["Ancho puño izquierdo"].iloc[0]) / 2, 2),
-                "Ancho puño derecho": round((df_init["Ancho puño derecho"].iloc[0] + df["Ancho puño derecho"].iloc[0]) / 2, 2)
+                "Ancho puño derecho": round((df_init["Ancho puño derecho"].iloc[0] + df["Ancho puño derecho"].iloc[0]) / 2, 2),
+                "Conteo puntos corridos": df_init["Conteo puntos corridos"].iloc[0] + df["Conteo puntos corridos"].iloc[0],
+                "Conteo huecos": df_init["Conteo huecos"].iloc[0] + df["Conteo huecos"].iloc[0]
             }
             promedio = pd.DataFrame([medidas])
-            self.lineEdit_ancho_2.setText(str(promedio["Contorno de Pecho"].iloc[0]))
-            self.lineEdit_cuello.setText(str(promedio["Ancho de Cuello"].iloc[0]))
-            self.lineEdit_largoizq.setText(str(promedio["Largo manga izquierda"].iloc[0]))
-            self.lineEdit_largoder.setText(str(promedio["Largo manga derecha"].iloc[0]))
-            self.lineEdit_sisaizq.setText(str(promedio["Ancho manga izquierda"].iloc[0]))
-            self.lineEdit_sisader.setText(str(promedio["Ancho manga derecha"].iloc[0]))
-            self.lineEdit_punoizq.setText(str(promedio["Ancho puño izquierdo"].iloc[0]))
-            self.lineEdit_punoder.setText(str(promedio["Ancho puño derecho"].iloc[0]))
+            self.mostrar_medidas(promedio)
 
             # Guardar en CSV
             promedio.to_csv(
@@ -707,6 +878,29 @@ class Window(QMainWindow, Ui_MainWindow):
             
         return df
     
+    def mostrar_medidas(self, df):
+        """
+        Función para mostrar las medidas en los lineEdits de la UI.
+        Se asume que el DataFrame tiene una sola fila con las columnas correspondientes.
+        """
+        if df is None or df.empty:
+            print("No hay datos para mostrar.")
+            return
+
+        row = df.iloc[0]  # Tomamos la primera fila (única)
+
+        self.lineEdit_ancho_2.setText(str(row.get("Contorno de Pecho", "")))
+        self.lineEdit_cuello.setText(str(row.get("Ancho de Cuello", "")))
+        self.lineEdit_largoizq.setText(str(row.get("Largo manga izquierda", "")))
+        self.lineEdit_largoder.setText(str(row.get("Largo manga derecha", "")))
+        self.lineEdit_sisaizq.setText(str(row.get("Ancho manga izquierda", "")))
+        self.lineEdit_sisader.setText(str(row.get("Ancho manga derecha", "")))
+        self.lineEdit_punoizq.setText(str(row.get("Ancho puño izquierdo", "")))
+        self.lineEdit_punoder.setText(str(row.get("Ancho puño derecho", "")))
+        self.lineEdit_puntos.setText(str(row.get("Conteo puntos corridos", "")))
+        self.lineEdit_huecos.setText(str(row.get("Conteo huecos", "")))
+        self.lineEdit_totaldefectos.setText(str(row.get("Conteo puntos corridos", 0) + row.get("Conteo huecos", 0)))
+
     def get_pixel_cm_ratio(self,image, real_size_cm=10.0):
         """
         Calcula px/cm usando DICT_4X4_1000 y refinamiento de sub-píxeles.
@@ -840,7 +1034,7 @@ class Window(QMainWindow, Ui_MainWindow):
             event.ignore()
 
     def load_model(self):
-        """Función para cargar el modelo de detección"""
+        """Función para cargar el modelo de pose y el modelo de detección de defectos"""
         import torch
         
         try:
@@ -855,24 +1049,41 @@ class Window(QMainWindow, Ui_MainWindow):
             else:
                 base_path = os.path.dirname(__file__)
 
-            model_path = os.path.join(base_path, "best.pt")
+            print(f"[LOAD] base_path = {base_path}")
 
+            # Modelo de pose (keypoints)
+            model_path = os.path.join(base_path, "best.pt")
+            print(f"[LOAD] Cargando modelo de pose: {model_path} (existe: {os.path.exists(model_path)})")
             self.model = YOLO(model_path)
-            print("Modelo cargado correctamente")
+            print("✅ Modelo de pose cargado correctamente")
+
+            # Modelo de detección de defectos (huecos y puntos corridos)
+            defect_model_path = os.path.join(base_path, "bestdefect.pt")
+            print(f"[LOAD] Cargando modelo de defectos: {defect_model_path} (existe: {os.path.exists(defect_model_path)})")
+            if os.path.exists(defect_model_path):
+                self.model_defect = YOLO(defect_model_path)
+                print(f"✅ Modelo de defectos cargado correctamente")
+                print(f"   Clases del modelo de defectos: {self.model_defect.names}")
+            else:
+                print(f"❌ No se encontró el modelo de defectos en: {defect_model_path}")
+                # Listar archivos .pt disponibles para diagnóstico
+                pt_files = [f for f in os.listdir(base_path) if f.endswith('.pt')]
+                print(f"   Archivos .pt encontrados en {base_path}: {pt_files}")
+                self.model_defect = None
 
         except Exception as e:
-            print(f"Advertencia: No se pudo cargar el modelo YOLO: {e}")
+            print(f"❌ Error al cargar modelos YOLO: {e}")
+            import traceback
+            traceback.print_exc()
             self.model = None
+            self.model_defect = None
 
 if __name__ == "__main__":
 
     QApplication.setHighDpiScaleFactorRoundingPolicy(
         Qt.HighDpiScaleFactorRoundingPolicy.Floor
     )
-    app = QApplication(sys.argv)
-    # 2. Configurar la política de redondeo INMEDIATAMENTE después de crear app
-    #app.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.Floor)
-    
+    app = QApplication(sys.argv)   
     MainWindow = Window()
     MainWindow.load_model()
     MainWindow.show() # Lo mostramos aquí explícitamente

@@ -23,6 +23,7 @@ dependencies = [
     "ultralytics==8.3.241",
     "albumentations>=2.0.8",
     "pandas>=3.0.2",
+    "tqdm>=4.67.3",
 ]
 
 [dependency-groups]
