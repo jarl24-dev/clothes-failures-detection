@@ -119,9 +119,13 @@ class Window(QMainWindow, Ui_MainWindow):
         self.setupUi(self)
 
         # Forzar tamaño exacto
-        self.setFixedSize(1300, 950)
+        #self.setFixedSize(1300, 950)
 
         self.label_camara.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
+        self.label_camara.setScaledContents(True)
+
+        self.label_camara_2.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
+        self.label_camara_2.setScaledContents(True)
         #self.show()
 
         # Conectar los botones/accionadores a sus respectivas funciones
@@ -690,7 +694,6 @@ class Window(QMainWindow, Ui_MainWindow):
             print("[DEFECTOS] ⚠️ model_defect es None - el modelo NO se cargó")
             self.lineEdit_huecos.setText("N/A")
             self.lineEdit_puntos.setText("N/A")
-            self.lineEdit_totaldefectos.setText("N/A")
             return image
         
         if image is None:
@@ -765,7 +768,6 @@ class Window(QMainWindow, Ui_MainWindow):
             total_defectos = conteo_huecos + conteo_puntos
             self.lineEdit_huecos.setText(str(conteo_huecos))
             self.lineEdit_puntos.setText(str(conteo_puntos))
-            self.lineEdit_totaldefectos.setText(str(total_defectos))
 
             print(f"🔍 Defectos detectados: {conteo_huecos} huecos, {conteo_puntos} puntos corridos, {total_defectos} total")
 
@@ -889,7 +891,7 @@ class Window(QMainWindow, Ui_MainWindow):
 
         row = df.iloc[0]  # Tomamos la primera fila (única)
 
-        self.lineEdit_ancho_2.setText(str(row.get("Contorno de Pecho", "")))
+        self.lineEdit_ancho.setText(str(row.get("Contorno de Pecho", "")))
         self.lineEdit_cuello.setText(str(row.get("Ancho de Cuello", "")))
         self.lineEdit_largoizq.setText(str(row.get("Largo manga izquierda", "")))
         self.lineEdit_largoder.setText(str(row.get("Largo manga derecha", "")))
@@ -899,7 +901,6 @@ class Window(QMainWindow, Ui_MainWindow):
         self.lineEdit_punoder.setText(str(row.get("Ancho puño derecho", "")))
         self.lineEdit_puntos.setText(str(row.get("Conteo puntos corridos", "")))
         self.lineEdit_huecos.setText(str(row.get("Conteo huecos", "")))
-        self.lineEdit_totaldefectos.setText(str(row.get("Conteo puntos corridos", 0) + row.get("Conteo huecos", 0)))
 
     def get_pixel_cm_ratio(self,image, real_size_cm=10.0):
         """
@@ -1080,9 +1081,9 @@ class Window(QMainWindow, Ui_MainWindow):
 
 if __name__ == "__main__":
 
-    QApplication.setHighDpiScaleFactorRoundingPolicy(
-        Qt.HighDpiScaleFactorRoundingPolicy.Floor
-    )
+    #QApplication.setHighDpiScaleFactorRoundingPolicy(
+        #Qt.HighDpiScaleFactorRoundingPolicy.Floor
+    #)
     app = QApplication(sys.argv)   
     MainWindow = Window()
     MainWindow.load_model()
