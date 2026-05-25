@@ -20,8 +20,12 @@ if getattr(sys, 'frozen', False):
     except Exception as e:
         print("Error cargando libiomp5md:", e)
 
-import torch
-import torchvision
+#import torch
+#import torchvision
+
+from typing import Tuple, List
+from sahi import AutoDetectionModel
+from sahi.predict import get_sliced_prediction
 
 #from ultralytics import YOLO
 import cv2
@@ -36,6 +40,7 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 sys.path.append(resource_path("MvImport"))
+
 # Importar las clases necesarias del módulo MvCameraControl para el control de cámaras HIKROBOT
 from MvImport.MvCameraControl_class import *
 
@@ -107,6 +112,9 @@ class Window(QMainWindow, Ui_MainWindow):
         # 4. GENERAR LA MATRIZ DE TRANSFORMACIÓN (M)
         self.M = cv2.getPerspectiveTransform(self.pts_foto, self.pts_reales)
 
+        # 5. Obtener dimensiones referenciales
+        self.df_dimensiones = pd.read_csv("input/dimesiones.csv")
+
         # Guardado de imágenes
         self.flg_guardar = False
 
@@ -155,6 +163,9 @@ class Window(QMainWindow, Ui_MainWindow):
         self.lineEdit_ip.setText('192.168.0.3')
         self.lineEdit_rack.setText(str(0))
         self.lineEdit_slot.setText(str(1))
+
+        self.comboBox_genero.addItems(self.df_dimensiones['genero'].unique())
+        self.comboBox_talla.addItems(self.df_dimensiones['talla'].unique())
 
     def mostrar_configCam(self): # Función para cambiar a la pantalla de configuración de cámara
             self.stackedWidget.setCurrentIndex(0)
@@ -482,12 +493,24 @@ class Window(QMainWindow, Ui_MainWindow):
                 self.img_dir2 = None
 
             if self.radioButton_disparo.isChecked():
-                real_kpts,preProcessedImage = self.predict_and_visualize_vs03(FlippedImage, imgsz=1024)
-                annotated_image, conteo_corridos, conteo_huecos = self.predict_defects(preProcessedImage)
-                self.results_df = self.calcular_y_guardar_medidas(df_init=self.results_df, real_kpts=real_kpts, M=self.M, img_dir1=self.img_dir1, img_dir2=self.img_dir2, output_path="output/medidas_chompa.csv", conteo_corridos=conteo_corridos, conteo_huecos=conteo_huecos)
-                ProcessedImage = self.draw_results(annotated_image, real_kpts)
-                # Detección de defectos (huecos y puntos corridos)
-                #ProcessedImage = self.detectar_defectos(ProcessedImage)
+
+
+                start_time = time.time()
+                real_kpts = None
+                if self.model is not None:
+                    real_kpts = self.predict_dimensiones(FlippedImage, imgsz=1024)
+
+                df_huecos, df_corridos = pd.DataFrame([]), pd.DataFrame([])
+                if self.model_defect is not None:
+                    df_huecos, df_corridos = self.predecir_defectos_sahi(FlippedImage, conf_threshold = 0.4)
+
+                print(f"[*] Tiempo total de prediccion: {(time.time() - start_time)*1000:.2f} ms")
+
+                self.results_df = self.calcular_y_guardar_medidas(df_init=self.results_df, real_kpts=real_kpts, M=self.M, 
+                                                                  img_dir1=self.img_dir1, img_dir2=self.img_dir2, output_path="output/medidas_chompa.csv", 
+                                                                  conteo_corridos=len(df_corridos), conteo_huecos=len(df_huecos))
+                
+                ProcessedImage = self.dibujar_resultados_inspeccion(FlippedImage, real_kpts, df_huecos, df_corridos)
 
             else:
                 ProcessedImage = image
@@ -534,62 +557,98 @@ class Window(QMainWindow, Ui_MainWindow):
                 
             #self.label_camara.setPixmap(QPixmap.fromImage(Pic))
 
-    def predict_defects(self, image):
-        """Ejecuta el modelo bestdefect.pt sobre la imagen para detectar huecos y puntos corridos.
-        Dibuja bounding boxes con etiquetas sobre cada defecto encontrado.
-        Actualiza los lineEdits de la UI con los conteos."""
-        img_orig = image.copy() if not isinstance(image, str) else cv2.imread(image)
-        if img_orig is None: return None, 0, 0
-
-        if True: return img_orig, 0, 0 # DESACTIVAR TEMPORALMENTE PARA PRUEBAS
-
-        # --- PASO A: DETECCIÓN DEL ÁREA (Usamos la imagen 4K tal cual) ---
-        if self.model_defect is None:
-            print("Error: El modelo no está cargado.")
-            return img_orig, 0, 0
+    def predecir_defectos_sahi(self,
+        imagen_input: str | np.ndarray,  
+        conf_threshold: float = 0.25
+    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        Realiza la detección de defectos por parches en imágenes 4K usando SAHI
+        utilizando el modelo de la instancia alojado en self.model_defect.
         
-        # 1. Inferencia (imgsz=1280 para mantener el detalle de los hilos)
-        results = self.model_defect.predict(source=img_orig, imgsz=1280, conf=0.4, verbose=False,classes=[1, 2])
-        
-        # Inicializar contadores
-        conteo_corridos = 0
-        conteo_huecos = 0
-        
-        # YOLO devuelve una lista de resultados (uno por imagen)
-        # Como pasamos una sola imagen, tomamos el índice 0
-        res = results[0]
-        
-        # 2. Obtener la imagen anotada (NumPy BGR)
-        # .plot() dibuja automáticamente todas las cajas detectadas
-        annotated_image = res.plot(line_width=max(2, int(img_orig.shape[1] / 800)))
-        
-        # 3. Lógica de conteo basada en los IDs de clase del data.yaml
-        if res.boxes is not None:
-            classes = res.boxes.cls.cpu().numpy() # Convertir tensores a numpy
+        Args:
+            imagen_input: Ruta de la imagen (str) o la imagen cargada en memoria (np.ndarray).
+            conf_threshold: Umbral de confianza mínimo para validar un defecto.
             
-            for cls_id in classes:
-                if int(cls_id) == 1:   # Clase 'Corrido'
-                    conteo_corridos += 1
-                elif int(cls_id) == 2: # Clase 'Hueco'
-                    conteo_huecos += 1
-                    
-        return annotated_image, conteo_corridos, conteo_huecos
+        Returns:
+            df_huecos: DataFrame estructurado con las ubicaciones de la clase 'hueco'.
+            df_corridos: DataFrame estructurado con las ubicaciones de la clase 'corrido'.
+        """
+        # Estructura base obligatoria para evitar KeyErrors en la interfaz gráfica
+        columnas = ['clase', 'confianza', 'xmin', 'ymin', 'xmax', 'ymax']
+
+        # 0. Verificamos la entrada de imagen y el modelo cargado en la App
+        if isinstance(imagen_input, str):
+            img_orig = cv2.imread(imagen_input)
+        else:
+            img_orig = imagen_input.copy()
+
+        if img_orig is None or self.model_defect is None: 
+            return pd.DataFrame(columns=columnas), pd.DataFrame(columns=columnas)
+
+        # 1. Adaptar el modelo ya cargado en memoria para que SAHI lo pueda usar
+        detection_model = AutoDetectionModel.from_pretrained(
+            model_type='yolov8', 
+            model=self.model_defect,      
+            confidence_threshold=conf_threshold,
+            device="cuda:0"                    
+        )
+        
+        # 2. Ejecutar el rebanado (tiling) e inferencia en tiempo de ejecución
+        result = get_sliced_prediction(
+            img_orig,
+            detection_model,
+            slice_height=1280,
+            slice_width=1280,
+            overlap_height_ratio=0.2,
+            overlap_width_ratio=0.2,
+            verbose=0
+        )
+        
+        # 3. Procesar y estructurar las detections globales
+        lista_detecciones = []
+        
+        for object_prediction in result.object_prediction_list:
+            clase_nombre = object_prediction.category.name.lower()
+            score = object_prediction.score.value
+            
+            # Coordenadas globales absolutas mapeadas sobre la matriz 4K original
+            bbox_global = object_prediction.bbox.to_voc_bbox() 
+            
+            lista_detecciones.append({
+                'clase': clase_nombre,
+                'confianza': score,
+                'xmin': int(bbox_global[0]),
+                'ymin': int(bbox_global[1]),
+                'xmax': int(bbox_global[2]),
+                'ymax': int(bbox_global[3])
+            })
+            
+        # 4. Crear los DataFrames de salida estructurados de manera consistente
+        if lista_detecciones:
+            df_total = pd.DataFrame(lista_detecciones)
+            df_huecos = df_total[df_total['clase'] == 'hueco'].reset_index(drop=True)
+            df_corridos = df_total[df_total['clase'] == 'corrido'].reset_index(drop=True)
+        else:
+            df_huecos = pd.DataFrame(columns=columnas)
+            df_corridos = pd.DataFrame(columns=columnas)
+            
+        # Retorno ordenado: primero huecos, luego corridos conforme al Docstring
+        return df_huecos, df_corridos
    
-    def predict_and_visualize_vs03(self, image_input, imgsz=1024, use_half=False, device=0):
+    def predict_dimensiones(self, image_input, imgsz=1024, use_half=False, device=0):
         # 1. Carga inicial
         img_orig = image_input.copy() if not isinstance(image_input, str) else cv2.imread(image_input)
-        if img_orig is None: return None, None
-        start_time = time.time()
+        if img_orig is None: return None
         h_orig, w_orig = img_orig.shape[:2]
 
         # --- PASO A: DETECCIÓN DEL ÁREA (Usamos la imagen 4K tal cual) ---
         if self.model is None:
             print("Error: El modelo no está cargado.")
-            return None, img_orig
+            return None
 
         raw_results = self.model.predict(img_orig, imgsz=640, conf=0.4, device=device)[0]
         if raw_results.boxes is None or len(raw_results.boxes) == 0:
-            return None, img_orig
+            return None
 
         bx1, by1, bx2, by2 = raw_results.boxes.xyxy[0].cpu().numpy()
         bw, bh = bx2 - bx1, by2 - by1
@@ -615,7 +674,7 @@ class Window(QMainWindow, Ui_MainWindow):
         # Al ser el canvas ya de 1024, imgsz=1024 no hará re-escalados internos
         results = self.model.predict(canvas, imgsz=1024, conf=0.6, device=device, half=use_half)[0]
         
-        if results.keypoints is None: return None, img_orig
+        if results.keypoints is None: return None
 
         # --- PASO D: RECONSTRUCCIÓN USANDO .xyn (NORMALIZADOS) ---
         # .xyn devuelve valores entre 0 y 1 respecto al canvas de entrada
@@ -639,143 +698,106 @@ class Window(QMainWindow, Ui_MainWindow):
                 (ky_res / scale) + y_min
             ]
 
-        print(f"[*] Tiempo total: {(time.time() - start_time)*1000:.2f} ms")
-        return real_kpts, img_orig
+        return real_kpts
     
-    def draw_results(self, image, real_kpts):
+    def dibujar_resultados_inspeccion(
+        self,
+        imagen_input: np.ndarray,
+        listado_puntos: List[List[int]],
+        df_huecos: pd.DataFrame,
+        df_corridos: pd.DataFrame
+    ) -> np.ndarray:
         """
-        Dibuja los resultados sobre la imagen original de alta resolución.
+        Dibuja los puntos clave de la prenda, las cajas de huecos y las cajas de
+        hilos corridos sobre un array de imagen, aceptando puntos como listas [x, y].
+        
+        Returns:
+            imagen_dibujada: np.ndarray con todas las anotaciones visuales.
         """
-        img_vis = image.copy()
-        if real_kpts is None or len(real_kpts) == 0:
-            return img_vis
-        
-        # 1. Configuración de estilos para 4K
-        # Escalamos los grosores según el ancho de la imagen
-        thickness = max(2, int(image.shape[1] / 800))
-        font_scale = image.shape[1] / 1500
-        
-        # 2. Calcular BBox dinámico a partir de los puntos detectados
-        # Añadimos un pequeño margen de 40px para que no pegue a la tela
-        x_min, y_min = np.min(real_kpts, axis=0) - 50
-        x_max, y_max = np.max(real_kpts, axis=0) + 50
-        
-        # Dibujar BBox (Color Azul Metrología)
-        cv2.rectangle(img_vis, (int(x_min), int(y_min)), (int(x_max), int(y_max)), (255, 50, 50), thickness)
-        
-        # Etiqueta del BBox
-        cv2.putText(img_vis, "CHOMPA DETECTADA", (int(x_min), int(y_min) - 20), 
-                    cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 50, 50), thickness)
+        # 0. Clonamos la imagen original para no contaminar el frame nativo en memoria
+        canvas = imagen_input.copy()
 
-        # 3. Dibujar Keypoints numerados
-        for i, (kx, ky) in enumerate(real_kpts):
-            # Punto sólido (Cian para contraste sobre verde/blanco)
-            cv2.circle(img_vis, (int(kx), int(ky)), int(thickness * 2.5), (255, 255, 0), -1)
+        if canvas is None:
+            return None
+
+        # 1. Configuración de estilos dinámicos optimizada
+        ancho_imagen = canvas.shape[1]
+        thickness = max(2, int(ancho_imagen / 1000))  # Grosor base ligeramente más delgado
+        
+        # NUEVA CONFIGURACIÓN DE TEXTO AJUSTADA
+        # Escala mayor para la prenda, menor para los defectos individuales
+        font_scale_global = ancho_imagen / 1800  # Para "Prenda Detectada"
+        font_scale_defect = ancho_imagen / 2500  # Reducido sustancialmente para HUECO/CORRIDO
+
+        # -----------------------------------------------------------------
+        # 1. DIBUJAR LISTADO DE PUNTOS CLAVE Y RECUADRO DE LA PRENDA
+        # -----------------------------------------------------------------
+        if listado_puntos is not None and len(listado_puntos) > 0:
             
-            # Borde del punto para mayor visibilidad
-            cv2.circle(img_vis, (int(kx), int(ky)), int(thickness * 2.5), (0, 0, 0), 1)
-            
-            # Número del punto (Verde neón)
-            # Esto es vital para verificar que el punto 0 siempre sea el mismo hombro, etc.
-            cv2.putText(img_vis, str(i), (int(kx) + 20, int(ky) - 20), 
-                        cv2.FONT_HERSHEY_SIMPLEX, font_scale * 0.8, (0, 255, 0), thickness)
-
-        return img_vis
-
-    def detectar_defectos(self, image):
-        """
-        Ejecuta el modelo bestdefect.pt sobre la imagen para detectar huecos y puntos corridos.
-        Dibuja bounding boxes con etiquetas sobre cada defecto encontrado.
-        Actualiza los lineEdits de la UI con los conteos.
-        """
-        print(f"[DEFECTOS] detectar_defectos llamado. model_defect={self.model_defect is not None}, image={image is not None}")
-        
-        if self.model_defect is None:
-            print("[DEFECTOS] ⚠️ model_defect es None - el modelo NO se cargó")
-            self.lineEdit_huecos.setText("N/A")
-            self.lineEdit_puntos.setText("N/A")
-            return image
-        
-        if image is None:
-            print("[DEFECTOS] ⚠️ image es None")
-            return image
-
-        try:
-            print(f"[DEFECTOS] Ejecutando inferencia en imagen de {image.shape}...")
-            
-            # Inferencia con el modelo de defectos (imagen directa, sin conversión de color)
-            results = self.model_defect.predict(image, imgsz=640, conf=0.25,device=0)[0]
-
-            print(f"[DEFECTOS] Resultados: {len(results.boxes) if results.boxes is not None else 0} detecciones")
-
-            if results.boxes is None or len(results.boxes) == 0:
-                # Sin defectos detectados: limpiar conteos
+            for i, punto in enumerate(listado_puntos):
+                x, y = int(punto[0]), int(punto[1])
                 
-                return image
-
-            # Obtener nombres de clases del modelo
-            class_names = results.names  # dict {0: 'hueco', 1: 'punto_corrido', ...}
-
-            # Contadores por tipo de defecto
-            conteo_huecos = 0
-            conteo_puntos = 0
-
-            # Configuración visual escalada a resolución de imagen
-            img_vis = image.copy()
-            thickness = max(2, int(image.shape[1] / 800))
-            font_scale = image.shape[1] / 1500
-
-            # Colores por tipo de defecto (RGB)
-            COLOR_HUECO = (255, 0, 0)       # Rojo para huecos
-            COLOR_PUNTO = (255, 165, 0)     # Naranja para puntos corridos
-            COLOR_OTRO = (255, 255, 0)      # Amarillo para otros defectos
-
-            boxes = results.boxes
-            for i in range(len(boxes)):
-                # Coordenadas del bounding box
-                x1, y1, x2, y2 = boxes.xyxy[i].cpu().numpy().astype(int)
-                conf = float(boxes.conf[i].cpu().numpy())
-                cls_id = int(boxes.cls[i].cpu().numpy())
-                cls_name = class_names.get(cls_id, f"clase_{cls_id}")
-
-                # Clasificar y contar
-                nombre_lower = cls_name.lower()
-                if "hueco" in nombre_lower or "hole" in nombre_lower:
-                    conteo_huecos += 1
-                    color = COLOR_HUECO
-                elif "punto" in nombre_lower or "corrido" in nombre_lower or "run" in nombre_lower:
-                    conteo_puntos += 1
-                    color = COLOR_PUNTO
-                else:
-                    color = COLOR_OTRO
-
-                # Dibujar bounding box
-                cv2.rectangle(img_vis, (x1, y1), (x2, y2), color, thickness)
-
-                # Etiqueta con nombre de clase y confianza
-                label = f"{cls_name} {conf:.0%}"
-                label_size, _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, font_scale * 0.6, thickness)
+                # Círculo sólido azul y borde negro para contraste
+                cv2.circle(canvas, (x, y), int(thickness * 2), color=(255, 255, 0), thickness=-1)
+                cv2.circle(canvas, (x, y), int(thickness * 2), (0, 0, 0), thickness=1)
                 
-                # Fondo del texto para legibilidad
-                cv2.rectangle(img_vis, 
-                              (x1, y1 - label_size[1] - 10), 
-                              (x1 + label_size[0] + 5, y1), 
-                              color, -1)
-                cv2.putText(img_vis, label, (x1 + 2, y1 - 5), 
-                            cv2.FONT_HERSHEY_SIMPLEX, font_scale * 0.6, (255, 255, 255), thickness)
+                # Numerar los puntos (usando la escala reducida para los puntos)
+                cv2.putText(canvas, str(i), (x + 10, y - 10), 
+                            cv2.FONT_HERSHEY_SIMPLEX, font_scale_defect, (0, 255, 0), max(1, thickness-1))
+                
+            x_min, y_min = np.min(listado_puntos, axis=0) - 50
+            x_max, y_max = np.max(listado_puntos, axis=0) + 50
 
-            # Actualizar campos de la UI con los conteos
-            total_defectos = conteo_huecos + conteo_puntos
-            self.lineEdit_huecos.setText(str(conteo_huecos))
-            self.lineEdit_puntos.setText(str(conteo_puntos))
+            # BBox Global de la Prenda
+            cv2.rectangle(canvas, (int(x_min), int(y_min)), (int(x_max), int(y_max)), (255, 50, 50), thickness)
+            
+            # Etiqueta del BBox (usando escala global)
+            cv2.putText(canvas, "PRENDA DETECTADA", (int(x_min), int(y_min) - 20), 
+                        cv2.FONT_HERSHEY_SIMPLEX, font_scale_global, (255, 50, 50), thickness)
 
-            print(f"🔍 Defectos detectados: {conteo_huecos} huecos, {conteo_puntos} puntos corridos, {total_defectos} total")
+        # -----------------------------------------------------------------
+        # 2. DIBUJAR DETECCIONES DE HUECOS
+        # -----------------------------------------------------------------
+        color_huecos = (218, 165, 32) # Amarillo dorado para huecos
+        if df_huecos is not None and not df_huecos.empty:
+            for _, row in df_huecos.iterrows():
+                xmin, ymin = int(row['xmin']), int(row['ymin'])
+                xmax, ymax = int(row['xmax']), int(row['ymax'])
+                confianza = row['confianza']
+                
+                cv2.rectangle(canvas, (xmin, ymin), (xmax, ymax), color=color_huecos, thickness=max(1, thickness-1))
+                
+                texto = f"HUECO {confianza:.2%}"
+                
+                # NUEVO: Borde negro de contraste para el texto para legibilidad a menor tamaño
+                cv2.putText(canvas, texto, (xmin, ymin - 10), 
+                            cv2.FONT_HERSHEY_SIMPLEX, font_scale_defect, (0, 0, 0), thickness+1, cv2.LINE_AA)
+                # Texto principal
+                cv2.putText(canvas, texto, (xmin, ymin - 10), 
+                            cv2.FONT_HERSHEY_SIMPLEX, font_scale_defect, color_huecos, max(1, thickness-1), cv2.LINE_AA)
 
-            return img_vis
+        # -----------------------------------------------------------------
+        # 3. DIBUJAR DETECCIONES DE HILOS CORRIDOS
+        # -----------------------------------------------------------------
+        color_corridos = (0, 255, 204) # Turquesa
+        if df_corridos is not None and not df_corridos.empty:
+            for _, row in df_corridos.iterrows():
+                xmin, ymin = int(row['xmin']), int(row['ymin'])
+                xmax, ymax = int(row['xmax']), int(row['ymax'])
+                confianza = row['confianza']
+                
+                cv2.rectangle(canvas, (xmin, ymin), (xmax, ymax), color=color_corridos, thickness=max(1, thickness-1))
+                
+                texto = f"CORRIDO {confianza:.2%}"
+                
+                # NUEVO: Borde negro de contraste
+                cv2.putText(canvas, texto, (xmin, ymin - 10), 
+                            cv2.FONT_HERSHEY_SIMPLEX, font_scale_defect, (0, 0, 0), thickness+1, cv2.LINE_AA)
+                # Texto principal
+                cv2.putText(canvas, texto, (xmin, ymin - 10), 
+                            cv2.FONT_HERSHEY_SIMPLEX, font_scale_defect, color_corridos, max(1, thickness-1), cv2.LINE_AA)
 
-        except Exception as e:
-            print(f"Error en detección de defectos: {e}")
-            return image
+        return canvas
 
     def calcular_y_guardar_medidas(self,df_init, real_kpts,M,img_dir1,img_dir2, output_path="output/medidas_chompa.csv",conteo_corridos=0, conteo_huecos=0):
         """
@@ -843,6 +865,7 @@ class Window(QMainWindow, Ui_MainWindow):
         if self.plc is None:
             # Mostrar medidas en UI solo si no estamos en modo PLC (para evitar conflictos de actualización)
             self.mostrar_medidas(df)
+            self.comparar_medidas(df)
 
         if df_init is not None and not df_init.empty and self.voltear_imagen == True:
             medidas = {
@@ -862,6 +885,7 @@ class Window(QMainWindow, Ui_MainWindow):
             }
             promedio = pd.DataFrame([medidas])
             self.mostrar_medidas(promedio)
+            self.comparar_medidas(promedio)
 
             # Guardar en CSV
             promedio.to_csv(
@@ -891,16 +915,81 @@ class Window(QMainWindow, Ui_MainWindow):
 
         row = df.iloc[0]  # Tomamos la primera fila (única)
 
-        self.lineEdit_ancho.setText(str(row.get("Contorno de Pecho", "")))
-        self.lineEdit_cuello.setText(str(row.get("Ancho de Cuello", "")))
-        self.lineEdit_largoizq.setText(str(row.get("Largo manga izquierda", "")))
-        self.lineEdit_largoder.setText(str(row.get("Largo manga derecha", "")))
-        self.lineEdit_sisaizq.setText(str(row.get("Ancho manga izquierda", "")))
-        self.lineEdit_sisader.setText(str(row.get("Ancho manga derecha", "")))
-        self.lineEdit_punoizq.setText(str(row.get("Ancho puño izquierdo", "")))
-        self.lineEdit_punoder.setText(str(row.get("Ancho puño derecho", "")))
+        self.lineEdit_ancho.setText(str(row.get("Contorno de Pecho", "")) + " cm")
+        self.lineEdit_cuello.setText(str(row.get("Ancho de Cuello", "")) + " cm")
+        self.lineEdit_largoizq.setText(str(row.get("Largo manga izquierda", "")) + " cm")
+        self.lineEdit_largoder.setText(str(row.get("Largo manga derecha", "")) + " cm")
+        self.lineEdit_sisaizq.setText(str(row.get("Ancho manga izquierda", "")) + " cm")
+        self.lineEdit_sisader.setText(str(row.get("Ancho manga derecha", "")) + " cm")
+        self.lineEdit_punoizq.setText(str(row.get("Ancho puño izquierdo", "")) + " cm")
+        self.lineEdit_punoder.setText(str(row.get("Ancho puño derecho", "")) + " cm")
         self.lineEdit_puntos.setText(str(row.get("Conteo puntos corridos", "")))
         self.lineEdit_huecos.setText(str(row.get("Conteo huecos", "")))
+
+    def comparar_medidas(self, medidas_calculadas):
+        """
+        Compara las medidas calculadas con las referenciales y devuelve un diccionario con el resultado de la comparación.
+        Se asume que ambos diccionarios tienen las mismas claves y que los valores son numéricos.
+        """
+
+        if self.df_dimensiones is None:
+            print("No hay medidas referenciales para comparar.")
+            return
+        
+        talla = self.comboBox_talla.currentText()
+        genero = self.comboBox_genero.currentText()
+
+        valores_referenciales = self.df_dimensiones[(self.df_dimensiones["talla"] == talla) & (self.df_dimensiones["genero"] == genero)].iloc[0]
+
+        print(f"Comparando medidas para Talla: {talla}, Género: {genero}") 
+        #print("valores referenciales:")
+        #print(valores_referenciales)
+
+        if medidas_calculadas is None or medidas_calculadas.empty:
+            print("No hay medidas calculadas para comparar.")
+            return
+        
+        valores_actuales = medidas_calculadas.iloc[0]
+
+        if np.abs(valores_actuales["Contorno de Pecho"] - valores_referenciales["ancho_pecho"]) > valores_referenciales["tol_pecho"]:
+            self.label_pecho.setText("✅")
+        else:
+            self.label_pecho.setText("❌")
+
+        if np.abs(valores_actuales["Ancho de Cuello"] - valores_referenciales["ancho_cuello"]) > valores_referenciales["tol_cuello"]:
+            self.label_cuello.setText("✅")
+        else:
+            self.label_cuello.setText("❌")
+
+        if np.abs(valores_actuales["Largo manga izquierda"] - valores_referenciales["largo_manga"]) > valores_referenciales["tol_largo_manga"]:
+            self.label_largoizq.setText("✅")
+        else:
+            self.label_largoizq.setText("❌")
+
+        if np.abs(valores_actuales["Largo manga derecha"] - valores_referenciales["largo_manga"]) > valores_referenciales["tol_largo_manga"]:
+            self.label_largoder.setText("✅")
+        else:
+            self.label_largoder.setText("❌")
+
+        if np.abs(valores_actuales["Ancho manga izquierda"] - valores_referenciales["sisa"]) > valores_referenciales["tol_sisa"]:
+            self.label_sisaizq.setText("✅")
+        else:
+            self.label_sisaizq.setText("❌")
+
+        if np.abs(valores_actuales["Ancho manga derecha"] - valores_referenciales["sisa"]) > valores_referenciales["tol_sisa"]:
+            self.label_sisader.setText("✅")
+        else:
+            self.label_sisader.setText("❌")
+
+        if np.abs(valores_actuales["Ancho puño izquierdo"] - valores_referenciales["punio"]) > valores_referenciales["tol_punio"]:
+            self.label_punizq.setText("✅")
+        else:
+            self.label_punizq.setText("❌")
+
+        if np.abs(valores_actuales["Ancho puño derecho"] - valores_referenciales["punio"]) > valores_referenciales["tol_punio"]:
+            self.label_punder.setText("✅")
+        else:
+            self.label_punder.setText("❌")
 
     def get_pixel_cm_ratio(self,image, real_size_cm=10.0):
         """
@@ -1008,6 +1097,26 @@ class Window(QMainWindow, Ui_MainWindow):
 
             self.label_camara.clear()
             self.label_camara_2.clear()
+
+            self.lineEdit_ancho.clear()
+            self.lineEdit_cuello.clear()
+            self.lineEdit_largoizq.clear()
+            self.lineEdit_largoder.clear()
+            self.lineEdit_sisaizq.clear()
+            self.lineEdit_sisader.clear()
+            self.lineEdit_punoizq.clear()
+            self.lineEdit_punoder.clear()
+            self.lineEdit_puntos.clear()
+            self.lineEdit_huecos.clear()
+
+            self.label_pecho.clear()
+            self.label_cuello.clear()
+            self.label_largoizq.clear()
+            self.label_largoder.clear()
+            self.label_sisaizq.clear()
+            self.label_sisader.clear()
+            self.label_punizq.clear()
+            self.label_punder.clear()
             
             return True
         return False
