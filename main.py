@@ -951,42 +951,42 @@ class Window(QMainWindow, Ui_MainWindow):
         
         valores_actuales = medidas_calculadas.iloc[0]
 
-        if np.abs(valores_actuales["Contorno de Pecho"] - valores_referenciales["ancho_pecho"]) > valores_referenciales["tol_pecho"]:
+        if np.abs(valores_actuales["Contorno de Pecho"] - valores_referenciales["ancho_pecho"]) < valores_referenciales["tol_pecho"]:
             self.label_pecho.setText("✅")
         else:
             self.label_pecho.setText("❌")
 
-        if np.abs(valores_actuales["Ancho de Cuello"] - valores_referenciales["ancho_cuello"]) > valores_referenciales["tol_cuello"]:
+        if np.abs(valores_actuales["Ancho de Cuello"] - valores_referenciales["ancho_cuello"]) < valores_referenciales["tol_cuello"]:
             self.label_cuello.setText("✅")
         else:
             self.label_cuello.setText("❌")
 
-        if np.abs(valores_actuales["Largo manga izquierda"] - valores_referenciales["largo_manga"]) > valores_referenciales["tol_largo_manga"]:
+        if np.abs(valores_actuales["Largo manga izquierda"] - valores_referenciales["largo_manga"]) < valores_referenciales["tol_largo_manga"]:
             self.label_largoizq.setText("✅")
         else:
             self.label_largoizq.setText("❌")
 
-        if np.abs(valores_actuales["Largo manga derecha"] - valores_referenciales["largo_manga"]) > valores_referenciales["tol_largo_manga"]:
+        if np.abs(valores_actuales["Largo manga derecha"] - valores_referenciales["largo_manga"]) < valores_referenciales["tol_largo_manga"]:
             self.label_largoder.setText("✅")
         else:
             self.label_largoder.setText("❌")
 
-        if np.abs(valores_actuales["Ancho manga izquierda"] - valores_referenciales["sisa"]) > valores_referenciales["tol_sisa"]:
+        if np.abs(valores_actuales["Ancho manga izquierda"] - valores_referenciales["sisa"]) < valores_referenciales["tol_sisa"]:
             self.label_sisaizq.setText("✅")
         else:
             self.label_sisaizq.setText("❌")
 
-        if np.abs(valores_actuales["Ancho manga derecha"] - valores_referenciales["sisa"]) > valores_referenciales["tol_sisa"]:
+        if np.abs(valores_actuales["Ancho manga derecha"] - valores_referenciales["sisa"]) < valores_referenciales["tol_sisa"]:
             self.label_sisader.setText("✅")
         else:
             self.label_sisader.setText("❌")
 
-        if np.abs(valores_actuales["Ancho puño izquierdo"] - valores_referenciales["punio"]) > valores_referenciales["tol_punio"]:
+        if np.abs(valores_actuales["Ancho puño izquierdo"] - valores_referenciales["punio"]) < valores_referenciales["tol_punio"]:
             self.label_punizq.setText("✅")
         else:
             self.label_punizq.setText("❌")
 
-        if np.abs(valores_actuales["Ancho puño derecho"] - valores_referenciales["punio"]) > valores_referenciales["tol_punio"]:
+        if np.abs(valores_actuales["Ancho puño derecho"] - valores_referenciales["punio"]) < valores_referenciales["tol_punio"]:
             self.label_punder.setText("✅")
         else:
             self.label_punder.setText("❌")
