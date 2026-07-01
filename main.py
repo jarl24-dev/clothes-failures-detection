@@ -113,7 +113,11 @@ class Window(QMainWindow, Ui_MainWindow):
         self.M = cv2.getPerspectiveTransform(self.pts_foto, self.pts_reales)
 
         # 5. Obtener dimensiones referenciales
-        self.df_dimensiones = pd.read_csv("input/dimesiones.csv")
+        try: 
+            self.df_dimensiones = pd.read_csv(resource_path("input/dimesiones.csv"))
+        except:
+            self.df_dimensiones = pd.DataFrame([])  # DataFrame vacío como fallback
+
 
         # Guardado de imágenes
         self.flg_guardar = False
@@ -164,8 +168,9 @@ class Window(QMainWindow, Ui_MainWindow):
         self.lineEdit_rack.setText(str(0))
         self.lineEdit_slot.setText(str(1))
 
-        self.comboBox_genero.addItems(self.df_dimensiones['genero'].unique())
-        self.comboBox_talla.addItems(self.df_dimensiones['talla'].unique())
+        if self.df_dimensiones is not None and not self.df_dimensiones.empty:
+            self.comboBox_genero.addItems(self.df_dimensiones['genero'].unique())
+            self.comboBox_talla.addItems(self.df_dimensiones['talla'].unique())
 
     def mostrar_configCam(self): # Función para cambiar a la pantalla de configuración de cámara
             self.stackedWidget.setCurrentIndex(0)
