@@ -25,6 +25,7 @@ dependencies = [
     "pandas>=3.0.2",
     "tqdm>=4.67.3",
     "sahi>=0.11.36",
+    "pycocotools>=2.0.11",
 ]
 
 [dependency-groups]
