@@ -168,6 +168,8 @@ class Window(QMainWindow, Ui_MainWindow):
         self.lineEdit_rack.setText(str(0))
         self.lineEdit_slot.setText(str(1))
 
+        self.lineEdit_estado.setReadOnly(True)
+
         if self.df_dimensiones is not None and not self.df_dimensiones.empty:
             self.comboBox_genero.addItems(self.df_dimensiones['genero'].unique())
             self.comboBox_talla.addItems(self.df_dimensiones['talla'].unique())
@@ -955,46 +957,85 @@ class Window(QMainWindow, Ui_MainWindow):
             return
         
         valores_actuales = medidas_calculadas.iloc[0]
+        dimensiones_falladas = False
 
         if np.abs(valores_actuales["Contorno de Pecho"] - valores_referenciales["ancho_pecho"]) < valores_referenciales["tol_pecho"]:
             self.label_pecho.setText("✅")
         else:
+            dimensiones_falladas = True
             self.label_pecho.setText("❌")
 
         if np.abs(valores_actuales["Ancho de Cuello"] - valores_referenciales["ancho_cuello"]) < valores_referenciales["tol_cuello"]:
             self.label_cuello.setText("✅")
         else:
+            dimensiones_falladas = True
             self.label_cuello.setText("❌")
 
         if np.abs(valores_actuales["Largo manga izquierda"] - valores_referenciales["largo_manga"]) < valores_referenciales["tol_largo_manga"]:
             self.label_largoizq.setText("✅")
         else:
+            dimensiones_falladas = True
             self.label_largoizq.setText("❌")
 
         if np.abs(valores_actuales["Largo manga derecha"] - valores_referenciales["largo_manga"]) < valores_referenciales["tol_largo_manga"]:
             self.label_largoder.setText("✅")
         else:
+            dimensiones_falladas = True
             self.label_largoder.setText("❌")
 
         if np.abs(valores_actuales["Ancho manga izquierda"] - valores_referenciales["sisa"]) < valores_referenciales["tol_sisa"]:
             self.label_sisaizq.setText("✅")
         else:
+            dimensiones_falladas = True
             self.label_sisaizq.setText("❌")
 
         if np.abs(valores_actuales["Ancho manga derecha"] - valores_referenciales["sisa"]) < valores_referenciales["tol_sisa"]:
             self.label_sisader.setText("✅")
         else:
+            dimensiones_falladas = True
             self.label_sisader.setText("❌")
 
         if np.abs(valores_actuales["Ancho puño izquierdo"] - valores_referenciales["punio"]) < valores_referenciales["tol_punio"]:
             self.label_punizq.setText("✅")
         else:
+            dimensiones_falladas = True
             self.label_punizq.setText("❌")
 
         if np.abs(valores_actuales["Ancho puño derecho"] - valores_referenciales["punio"]) < valores_referenciales["tol_punio"]:
             self.label_punder.setText("✅")
         else:
+            dimensiones_falladas = True
             self.label_punder.setText("❌")
+
+        # Obtener valores asegurando que no sean NaN o vacíos
+        puntos = valores_actuales.get("Conteo puntos corridos", 0)
+        huecos = valores_actuales.get("Conteo huecos", 0)
+        
+        # Si son NaN o nulos, convertirlos a 0
+        puntos_int = 0 if pd.isna(puntos) or puntos == "" else int(puntos)
+        huecos_int = 0 if pd.isna(huecos) or huecos == "" else int(huecos)
+
+        if dimensiones_falladas:
+            self.lineEdit_estado.setText("Rechazado")
+            self.lineEdit_estado.setStyleSheet(
+                "background-color: #FFCDD2; "
+                "color: #B71C1C; "
+                "border: 1px solid #E53935;"
+            )
+        elif puntos_int > 0 or huecos_int > 0:
+            self.lineEdit_estado.setText("Revisión")
+            self.lineEdit_estado.setStyleSheet(
+                "background-color: #FFE082; "  # Ámbar suave
+                "color: #6D4C41; "             # Marrón oscuro
+                "border: 1px solid #FFB300;"   # Borde ámbar encendido
+            )
+        else:
+            self.lineEdit_estado.setText("Aprobado")
+            self.lineEdit_estado.setStyleSheet(
+                "background-color: #C8E6C9; "  # Verde suave
+                "color: #1B5E20; "             # Verde oscuro
+                "border: 1px solid #43A047;"   # Borde verde encendido
+            )
 
     def get_pixel_cm_ratio(self,image, real_size_cm=10.0):
         """
